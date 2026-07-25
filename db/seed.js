@@ -69,7 +69,7 @@ upsertUser({
   },
 });
 
-upsertUser({
+const dadId = upsertUser({
   username: "dad.tikas",
   password: "changeme123",
   fullName: "Dad",
@@ -84,5 +84,24 @@ upsertUser({
     approveSensitiveOutsideTransmission: true,
   },
 });
+
+// The one deliberate default-shared exception per Folder_Permissions.md —
+// "not everything requires manual setup from day one." Admins get full
+// control, Basic Users get View only (the doc's own suggested default).
+const existingSharedFolder = db.prepare("SELECT id FROM folders WHERE is_shared_family_folder = 1").get();
+if (existingSharedFolder) {
+  console.log("Shared family folder already exists — nothing to do.");
+} else {
+  db.prepare(
+    `INSERT INTO folders (id, name, owner_id, parent_folder_id, inherits_permissions, permissions, is_shared_family_folder)
+     VALUES (?, ?, ?, NULL, 1, ?, 1)`
+  ).run(
+    crypto.randomUUID(),
+    "Whole Family",
+    dadId,
+    JSON.stringify({ roles: { super_admin: "delete", admin: "delete", basic_user: "view" } })
+  );
+  console.log('Seeded shared "Whole Family" folder.');
+}
 
 db.close();

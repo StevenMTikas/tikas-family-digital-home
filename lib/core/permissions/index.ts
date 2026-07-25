@@ -100,16 +100,68 @@ export function hasPermission(actor: AuthUser, permission: keyof GrantablePermis
   return actor.permissions[permission];
 }
 
+export type FolderAccessLevel = "view" | "edit" | "delete";
+
+// Grants store the single highest level held per user/role, not three
+// independent booleans — Folder_Permissions.md defines Edit as implying View
+// and Delete as implying View+Edit, so a lower level is never held without
+// the ones below it.
+export interface FolderPermissionGrants {
+  users?: Partial<Record<string, FolderAccessLevel>>;
+  roles?: Partial<Record<Role, FolderAccessLevel>>;
+}
+
+const FOLDER_ACCESS_RANK: Record<FolderAccessLevel, number> = { view: 1, edit: 2, delete: 3 };
+
+interface FolderRow {
+  id: string;
+  parent_folder_id: string | null;
+  inherits_permissions: number;
+  permissions: string | null;
+}
+
+/**
+ * Resolves a folder's *effective* permissions: its own, if it doesn't
+ * inherit (top-level, or a Super-Admin-set override) — otherwise its
+ * parent's, walked recursively. See Folder_Permissions.md's Nesting &
+ * Inheritance section.
+ */
+function resolveFolderPermissions(folderId: string): FolderPermissionGrants | null {
+  const folder = getDb()
+    .prepare(`SELECT id, parent_folder_id, inherits_permissions, permissions FROM folders WHERE id = ?`)
+    .get(folderId) as FolderRow | undefined;
+
+  if (!folder) return null;
+
+  if (folder.inherits_permissions && folder.parent_folder_id) {
+    return resolveFolderPermissions(folder.parent_folder_id);
+  }
+
+  return folder.permissions ? JSON.parse(folder.permissions) : null;
+}
+
 /**
  * Folder-level View/Edit/Delete check with nesting/inheritance.
- * See docs/04_Permissions/Folder_Permissions.md.
+ * See docs/04_Permissions/Folder_Permissions.md. Super Admin bypasses this
+ * unconditionally, consistent with Authorization.md's "full, unconditional
+ * access to everything."
  */
 export async function canAccessFolder(
   ctx: PermissionContext,
   folderId: string,
-  level: "view" | "edit" | "delete"
+  level: FolderAccessLevel
 ): Promise<boolean> {
-  throw new Error("Not implemented — see docs/04_Permissions/Folder_Permissions.md");
+  const actor = await getAuthUser(ctx.userId);
+  if (!actor) return false;
+  if (actor.role === "super_admin") return true;
+
+  const grants = resolveFolderPermissions(folderId);
+  if (!grants) return false;
+
+  const grantedLevel = grants.users?.[actor.id] ?? grants.roles?.[actor.role];
+  if (!grantedLevel) return false;
+
+  return FOLDER_ACCESS_RANK[grantedLevel] >= FOLDER_ACCESS_RANK[level];
 }
 
 /**

@@ -6,13 +6,12 @@
 import Database from "better-sqlite3";
 import path from "path";
 
-const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), "db", "tikas.db");
-
 let db: Database.Database | undefined;
 
 export function getDb(): Database.Database {
   if (!db) {
-    db = new Database(DB_PATH);
+    const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), "db", "tikas.db");
+    db = new Database(dbPath);
     db.pragma("journal_mode = WAL");
   }
   return db;
