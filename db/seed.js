@@ -85,6 +85,21 @@ const dadId = upsertUser({
   },
 });
 
+// A couple of dev-only devices for Dad so "My Devices" (Users.md) has
+// something to show — real devices come from the Phase 5 pairing flow.
+const existingDevice = db.prepare("SELECT id FROM devices WHERE user_id = ?").get(dadId);
+if (existingDevice) {
+  console.log("Dad already has seeded devices — nothing to do.");
+} else {
+  const insertDevice = db.prepare(
+    `INSERT INTO devices (id, user_id, device_type, device_name, status, added_by)
+     VALUES (?, ?, ?, ?, 'trusted', ?)`
+  );
+  insertDevice.run(crypto.randomUUID(), dadId, "phone", "Dad's Phone", dadId);
+  insertDevice.run(crypto.randomUUID(), dadId, "computer", "Family Room Tablet", dadId);
+  console.log("Seeded 2 dev devices for Dad.");
+}
+
 // The one deliberate default-shared exception per Folder_Permissions.md —
 // "not everything requires manual setup from day one." Admins get full
 // control, Basic Users get View only (the doc's own suggested default).
