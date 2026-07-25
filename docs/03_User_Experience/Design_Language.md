@@ -27,8 +27,9 @@ The concept: **warm evening light in a home that's actually lived in** — not a
 | `--color-base` | `#F6F3EE` | Page background — warm off-white, softer and grayer than a cream/parchment default |
 | `--color-surface` | `#FFFFFF` | Card/panel surfaces, for gentle lift off the base |
 | `--color-ink` | `#3A342C` | Primary text — warm charcoal, not pure black |
-| `--color-ink-muted` | `#7A6F60` | Secondary text, captions, timestamps |
+| `--color-ink-muted` | `#6B6055` | Secondary text, captions, timestamps — darkened from `#7A6F60` during design review; the original failed WCAG AA (~4.4:1) against `--color-base`, this passes (~5.5:1) |
 | `--color-accent` | `#C98A3E` | Primary accent — muted amber/honey; used for primary actions, active states |
+| `--color-accent-strong` | `#9C6A2E` | Same hue family as `--color-accent`, for any filled control with a white label (Accept, Save, Add, primary CTAs) — `--color-accent` fails WCAG AA for white text (~2.9:1), this passes (~4.66:1) |
 | `--color-trust` | `#4B3F5E` | Secondary accent — deep warm plum; used for Guardian/security-related UI, headers, emphasis |
 | `--color-calm` | `#7A8B6F` | Tertiary accent — quiet sage; used sparingly for success states, positive confirmations |
 | `--color-urgent` | `#B23A3A` | Reserved for Guardian's urgent alerts only (`Notifications.md`, `Guardian.md`) — never used decoratively |
@@ -38,7 +39,7 @@ This palette is intentionally separate from the calendar's per-person colors —
 ### Typography
 
 - **Display face:** a warm, humanist slab-serif (e.g., in the family of Fraunces or Tiempos) — used with restraint, for the app name, section headers, and the Morning Briefing's greeting. Carries the "dependable, established" feeling without tipping into the generic high-contrast-serif-on-cream look.
-- **Body face:** a rounded-but-legible humanist sans (e.g., in the family of Inter or Public Sans, with slightly softened letterforms) — used for all body text, labels, and controls. Approachable without being childish.
+- **Body face:** Public Sans — settled from the earlier "Inter or Public Sans" open choice once the design handoff used Public Sans throughout; a rounded-but-legible humanist sans with slightly softened letterforms, used for all body text, labels, and controls. Approachable without being childish.
 - **Utility face:** the body face's own tabular/mono-adjacent numerals for timestamps, counts, and data (weather, task counts) — no separate monospace face needed for MVP.
 
 ### Shape & Spacing
