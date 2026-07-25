@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { pickSelfEditableFields } from "./route";
+import { pickSelfEditableFields } from "./fields";
 
 describe("pickSelfEditableFields", () => {
   it("maps the self-editable fields to their column names", () => {

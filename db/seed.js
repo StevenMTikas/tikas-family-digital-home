@@ -14,7 +14,7 @@ const path = require("path");
 const DB_PATH = process.env.DATABASE_PATH || path.join(__dirname, "tikas.db");
 const db = new Database(DB_PATH);
 
-function upsertUser({ username, password, fullName, role, adminScope, permissions }) {
+function upsertUser({ username, password, fullName, role, adminScope, permissions, calendarColor }) {
   const existing = db.prepare("SELECT id FROM users WHERE username = ?").get(username);
   if (existing) {
     console.log(`User "${username}" already exists — nothing to do.`);
@@ -24,11 +24,11 @@ function upsertUser({ username, password, fullName, role, adminScope, permission
   const id = crypto.randomUUID();
   const p = permissions || {};
   db.prepare(
-    `INSERT INTO users (id, username, password_hash, full_name, role, admin_scope,
+    `INSERT INTO users (id, username, password_hash, full_name, role, admin_scope, calendar_color,
        approve_outside_calls, manage_devices, manage_parental_controls,
        view_child_activity_logs, delete_content, manage_folder_permissions,
        approve_sensitive_outside_transmission)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     username,
@@ -36,6 +36,7 @@ function upsertUser({ username, password, fullName, role, adminScope, permission
     fullName,
     role,
     adminScope ? JSON.stringify(adminScope) : null,
+    calendarColor ?? null,
     p.approveOutsideCalls ? 1 : 0,
     p.manageDevices ? 1 : 0,
     p.manageParentalControls ? 1 : 0,
@@ -49,11 +50,14 @@ function upsertUser({ username, password, fullName, role, adminScope, permission
   return id;
 }
 
+// Fixed initial-household colors per Calendar.md — mirrors
+// lib/calendar/colors.ts's CALENDAR_COLOR_PALETTE order for Dad/Vee/Malachi.
 const malachiId = upsertUser({
   username: "malachi.tikas",
   password: "changeme123",
   fullName: "Malachi",
   role: "basic_user",
+  calendarColor: "#BE5A4E",
 });
 
 upsertUser({
@@ -62,6 +66,7 @@ upsertUser({
   fullName: "Vee",
   role: "admin",
   adminScope: [malachiId],
+  calendarColor: "#7A5C99",
   permissions: {
     manageDevices: true,
     manageParentalControls: true,
@@ -74,6 +79,7 @@ const dadId = upsertUser({
   password: "changeme123",
   fullName: "Dad",
   role: "super_admin",
+  calendarColor: "#3F6FA0",
   permissions: {
     approveOutsideCalls: true,
     manageDevices: true,

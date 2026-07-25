@@ -8,6 +8,7 @@ import bcrypt from "bcryptjs";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
+import { assignNextCalendarColor } from "@/lib/calendar/colors";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -81,10 +82,13 @@ export async function POST(req: NextRequest) {
   }
 
   const id = randomUUID();
+  // Auto-assigned from the calendar color palette — see Calendar.md: "New
+  // family members added later are assigned a color automatically."
+  const calendarColor = assignNextCalendarColor(db);
   db.prepare(
-    `INSERT INTO users (id, username, password_hash, full_name, relationship, date_of_birth, role)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, username, bcrypt.hashSync(password, 10), fullName, relationship, dateOfBirth, role);
+    `INSERT INTO users (id, username, password_hash, full_name, relationship, date_of_birth, role, calendar_color)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, username, bcrypt.hashSync(password, 10), fullName, relationship, dateOfBirth, role, calendarColor);
 
   return NextResponse.json({ id, username, fullName, role }, { status: 201 });
 }
