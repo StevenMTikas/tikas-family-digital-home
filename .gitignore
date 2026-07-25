@@ -4,6 +4,8 @@ out/
 build/
 *.db
 *.db-journal
+*.db-shm
+*.db-wal
 *.sqlite
 .env
 .env.local

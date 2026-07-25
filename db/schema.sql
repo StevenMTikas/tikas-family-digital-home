@@ -251,6 +251,19 @@ CREATE TABLE notifications (
     severity TEXT NOT NULL DEFAULT 'routine' CHECK (severity IN ('routine', 'urgent'))
 );
 
+-- ── Security Event ───────────────────────────────────────────────────
+-- See Security_Architecture.md (required event types) and Logs.md (Admin
+-- review screen, 30-day retention — retention is enforced by the logging
+-- service, not expressed as a schema constraint here). user_id is nullable
+-- to cover failed logins against a username that doesn't match any account.
+CREATE TABLE security_events (
+    id TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    user_id TEXT REFERENCES users(id),
+    detail TEXT,                          -- JSON
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ── Indexes ──────────────────────────────────────────────────────────
 -- Starting set covering the most common lookups. Add more as real query
 -- patterns emerge — do not over-index prematurely.
@@ -264,3 +277,5 @@ CREATE INDEX idx_messages_conversation_id ON messages(conversation_id);
 CREATE INDEX idx_ai_memory_user_id ON ai_memory(user_id);
 CREATE INDEX idx_ai_suggestions_user_id ON ai_suggestions(user_id);
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX idx_security_events_user_id ON security_events(user_id);
+CREATE INDEX idx_security_events_created_at ON security_events(created_at);
