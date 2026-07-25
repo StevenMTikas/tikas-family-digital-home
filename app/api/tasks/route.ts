@@ -14,9 +14,8 @@ function errorResponse(code: string, message: string, status: number) {
 }
 
 export async function GET(req: NextRequest) {
-  // TODO: auth check (reject unauthenticated / untrusted-device sessions,
-  // see Authentication.md), then list tasks visible to the requesting user
-  // per Tasks.md's visibility rules.
+  // Auth is enforced by middleware.ts (x-user-id header). TODO: list tasks
+  // visible to the requesting user per Tasks.md's visibility rules.
   return errorResponse("NOT_IMPLEMENTED", "GET /api/tasks not yet implemented", 501);
 }
 
