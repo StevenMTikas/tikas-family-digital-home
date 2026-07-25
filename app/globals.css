@@ -1,0 +1,6 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Design tokens live in tailwind.config.ts, sourced from
+   docs/03_User_Experience/Design_Language.md. Don't hardcode colors here. */
