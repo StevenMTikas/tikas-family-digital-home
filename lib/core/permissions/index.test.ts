@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { canManageUser, hasPermission, type AuthUser } from "./index";
+import { canManageUser, hasAdminAuthorityOver, hasPermission, type AuthUser } from "./index";
 
 function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
   return {
@@ -44,6 +44,31 @@ describe("canManageUser", () => {
   it("a Basic User cannot manage another user's account", () => {
     const malachi = makeUser({ id: "malachi", role: "basic_user" });
     expect(canManageUser(malachi, "vee")).toBe(false);
+  });
+});
+
+describe("hasAdminAuthorityOver", () => {
+  it("Super Admin has authority over any user, unconditionally", () => {
+    const superAdmin = makeUser({ id: "dad", role: "super_admin" });
+    expect(hasAdminAuthorityOver(superAdmin, "malachi")).toBe(true);
+  });
+
+  it("a scoped Admin has authority over the child they're scoped to", () => {
+    const vee = makeUser({ id: "vee", role: "admin", adminScope: ["malachi"] });
+    expect(hasAdminAuthorityOver(vee, "malachi")).toBe(true);
+  });
+
+  it("does NOT grant authority merely for acting on your own account — unlike canManageUser", () => {
+    // This is the exact bug this function exists to avoid: a task owner
+    // (Basic User) is never their own admin, even over their own id.
+    const malachi = makeUser({ id: "malachi", role: "basic_user" });
+    expect(hasAdminAuthorityOver(malachi, "malachi")).toBe(false);
+    expect(canManageUser(malachi, "malachi")).toBe(true); // canManageUser's self-clause, by contrast
+  });
+
+  it("a Basic User has no admin authority over anyone", () => {
+    const malachi = makeUser({ id: "malachi", role: "basic_user" });
+    expect(hasAdminAuthorityOver(malachi, "vee")).toBe(false);
   });
 });
 

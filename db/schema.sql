@@ -85,6 +85,10 @@ CREATE TABLE event_assignments (
 CREATE TABLE tasks (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
+    -- Missing from the original Data_Model.md Task entity even though
+    -- Tasks.md's own Screen Layout (Task detail, Add/Edit Task) and the
+    -- design handoff both use it — added here to match.
+    description TEXT,
     owner_id TEXT NOT NULL REFERENCES users(id),
     due_date TEXT,
     status TEXT NOT NULL DEFAULT 'not_done' CHECK (status IN ('not_done', 'done')),

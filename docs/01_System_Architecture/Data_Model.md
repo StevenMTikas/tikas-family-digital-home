@@ -78,6 +78,7 @@ Join table — an event can be assigned to multiple family members.
 |---|---|
 | id | |
 | title | |
+| description | optional detail text — used by Tasks.md's Task detail and Add/Edit Task screens; missing from this entity in an earlier pass, added to match |
 | owner_id | single owner for MVP |
 | due_date | |
 | status | not done / done |

@@ -80,14 +80,25 @@ export async function getAuthUser(userId: string): Promise<AuthUser | null> {
 }
 
 /**
+ * Does `actor` have admin authority over `targetUserId` specifically —
+ * Super Admin (unconditional) or an Admin scoped to that child? Deliberately
+ * excludes the trivial "acting on your own account" case — use this (not
+ * canManageUser) wherever plain ownership must NOT itself grant the right,
+ * e.g. Tasks.md: "the owner alone... cannot edit it, only complete it."
+ */
+export function hasAdminAuthorityOver(actor: AuthUser, targetUserId: string): boolean {
+  if (actor.role === "super_admin") return true;
+  return actor.role === "admin" && actor.adminScope.includes(targetUserId);
+}
+
+/**
  * Can `actor` manage `targetUserId`'s account? True for Super Admin
  * (unconditional), for a user managing their own account, or for an Admin
  * scoped to that child. See Authorization.md's Roles + Admin Scope sections.
  */
 export function canManageUser(actor: AuthUser, targetUserId: string): boolean {
-  if (actor.role === "super_admin") return true;
   if (actor.id === targetUserId) return true;
-  return actor.role === "admin" && actor.adminScope.includes(targetUserId);
+  return hasAdminAuthorityOver(actor, targetUserId);
 }
 
 /**
