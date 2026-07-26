@@ -45,6 +45,7 @@ Organized by area, for reference — see the linked document for full context on
 - Migrate to PostgreSQL if/when multi-writer contention becomes a real bottleneck (`Technology_Stack.md`)
 - Revisit hosting (e.g., a home server or NAS) if desktop uptime becomes unreliable (`Technology_Stack.md`)
 - Evaluate larger or fine-tuned local models as hardware allows (`Technology_Stack.md`)
+- Fix Ollama's GPU/CUDA acceleration on the host — currently forced to CPU-only inference (`OLLAMA_LLM_LIBRARY=cpu`) after a CUDA stack-buffer-overrun crash on this machine's GTX 1060 (driver 566.14, CUDA 12.7); likely an Ollama/driver version mismatch rather than a hardware limitation. CPU inference works but is slow (cold model load ~10-70s) — fixing this would meaningfully improve Assistant/Advisor/Guardian response latency (`Technology_Stack.md`, `AI_Architecture.md`)
 - Full encryption in transit and at rest if the system moves toward a commercial/cloud-facing product (`Security_Architecture.md`)
 - Cloud backup storage with mandatory encryption (`Security_Architecture.md`)
 - Introduce a proper state management library only if Server Components + Context prove insufficient (`Application_Architecture.md`)
