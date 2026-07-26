@@ -2,6 +2,7 @@ node_modules/
 .next/
 out/
 build/
+/uploads/
 *.db
 *.db-journal
 *.db-shm
