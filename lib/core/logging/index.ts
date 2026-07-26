@@ -20,7 +20,10 @@ export type LogEventType =
   // AI_Architecture.md: "Log every AI interaction through the shared
   // logging service" — one entry per agent run (Assistant reply, Advisor
   // suggestion generated, Guardian check), detail carries the agent + action.
-  | "ai_interaction";
+  | "ai_interaction"
+  // Backup.md: restoring is a rare, destructive, Super-Admin-only action —
+  // worth its own auditable entry, distinct from routine permission changes.
+  | "backup_restored";
 
 export interface LogEvent {
   type: LogEventType;
@@ -44,4 +47,17 @@ export async function logSecurityEvent(event: LogEvent): Promise<void> {
     event.userId || null,
     event.detail ? JSON.stringify(event.detail) : null
   );
+}
+
+const RETENTION_DAYS = 30; // Logs.md: "Log entries older than 30 days are purged automatically"
+
+/** Deletes security events older than the retention window. Run daily from the scheduler (instrumentation-node.ts). */
+export async function purgeOldSecurityEvents(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now);
+  cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
+
+  const result = getDb()
+    .prepare(`DELETE FROM security_events WHERE created_at < ?`)
+    .run(cutoff.toISOString());
+  return result.changes;
 }

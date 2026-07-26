@@ -3,6 +3,7 @@ node_modules/
 out/
 build/
 /uploads/
+/backups/
 *.db
 *.db-journal
 *.db-shm

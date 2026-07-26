@@ -1,11 +1,17 @@
 // Guardian: background, scheduled monitoring — system health, security
 // events, and fact-only family-usage patterns. See docs/05_AI/Guardian.md.
 //
-// Backup status and connector sync monitoring (Guardian.md's other two
-// System Health items) aren't checked here — there's no real backup system
-// or file-connector sync yet (Phase 4/5, not built). Disk space and device
-// "last synced" staleness ARE checked below since they're genuinely
-// observable on this host right now, even ahead of that infrastructure.
+// Connector sync monitoring (Guardian.md's fourth System Health item) isn't
+// checked here — there's no real file-connector sync yet (Phase 5, not
+// built). Disk space, device "last synced" staleness, and (as of Phase 4)
+// backup status ARE checked below.
+//
+// Alongside routing findings to notifications/suggestions, each run also
+// records a structured `health` snapshot in its own ai_interaction log entry
+// (see logAiInteraction call below) — this is what Administration's
+// Monitoring/Overview tabs read (Monitoring.md: "displays the results of
+// Guardian's existing scheduled monitoring pass... reuse the same
+// logging/event data rather than introducing a new entity").
 
 import { randomUUID } from "crypto";
 import { statfsSync } from "fs";
@@ -14,6 +20,7 @@ import { ollamaChat } from "./ollama";
 import { getModelForRole, logAiInteraction } from "./index";
 import { getBaseLayerPrompt } from "./base-layer";
 import { GUARDIAN_ROLE_PROMPT } from "./roles";
+import { getLastBackup } from "@/lib/core/backup";
 
 export type GuardianChannel = "passive" | "urgent" | "advisor";
 
@@ -28,36 +35,42 @@ const DISK_URGENT_THRESHOLD = 0.1; // per Guardian.md's example: "disk nearly fu
 const STALE_DEVICE_DAYS = 7;
 const INACTIVE_ACCOUNT_DAYS = 5; // matches Guardian.md's own example ("hasn't been opened in 5 days")
 
-function checkDiskSpace(): GuardianFinding[] {
+function getDiskFreeRatio(): number | null {
   try {
     const stats = statfsSync(process.cwd());
-    const freeRatio = stats.bavail / stats.blocks;
-    if (freeRatio < DISK_URGENT_THRESHOLD) {
-      return [
-        {
-          rawFinding: `Disk space is low: only ${(freeRatio * 100).toFixed(1)}% free.`,
-          channel: "urgent",
-        },
-      ];
-    }
-    return [];
+    return stats.bavail / stats.blocks;
   } catch {
-    return [];
+    return null;
   }
 }
 
-function checkStaleDevices(now: Date): GuardianFinding[] {
+function checkDiskSpace(): GuardianFinding[] {
+  const freeRatio = getDiskFreeRatio();
+  if (freeRatio !== null && freeRatio < DISK_URGENT_THRESHOLD) {
+    return [
+      {
+        rawFinding: `Disk space is low: only ${(freeRatio * 100).toFixed(1)}% free.`,
+        channel: "urgent",
+      },
+    ];
+  }
+  return [];
+}
+
+function getStaleDevices(now: Date): { device_name: string }[] {
   const cutoff = new Date(now);
   cutoff.setDate(cutoff.getDate() - STALE_DEVICE_DAYS);
 
-  const rows = getDb()
+  return getDb()
     .prepare(
       `SELECT device_name FROM devices
        WHERE status = 'trusted' AND last_sync_at IS NULL AND added_at < ?`
     )
     .all(cutoff.toISOString()) as { device_name: string }[];
+}
 
-  return rows.map((row) => ({
+function checkStaleDevices(now: Date): GuardianFinding[] {
+  return getStaleDevices(now).map((row) => ({
     rawFinding: `The device "${row.device_name}" has never synced since being trusted more than ${STALE_DEVICE_DAYS} days ago.`,
     channel: "passive" as const,
   }));
@@ -124,6 +137,58 @@ function getSuperAdminId(): string | null {
   return row?.id ?? null;
 }
 
+export interface SystemHealthSnapshot {
+  diskSpace: { status: "ok" | "urgent"; freeRatio: number | null };
+  deviceConnectivity: { status: "ok" | "issue"; staleDeviceCount: number };
+  backup: { status: "ok" | "issue" | "unknown"; lastBackupAt: string | null; lastBackupStatus: "success" | "failed" | null };
+}
+
+/** Builds the per-category health snapshot Administration's Monitoring/Overview tabs display — see file header. */
+export async function computeHealthSnapshot(now: Date = new Date()): Promise<SystemHealthSnapshot> {
+  const freeRatio = getDiskFreeRatio();
+  const staleDeviceCount = getStaleDevices(now).length;
+  const lastBackup = await getLastBackup();
+
+  return {
+    diskSpace: {
+      status: freeRatio !== null && freeRatio < DISK_URGENT_THRESHOLD ? "urgent" : "ok",
+      freeRatio,
+    },
+    deviceConnectivity: {
+      status: staleDeviceCount > 0 ? "issue" : "ok",
+      staleDeviceCount,
+    },
+    backup: {
+      status: !lastBackup ? "unknown" : lastBackup.status === "success" ? "ok" : "issue",
+      lastBackupAt: lastBackup?.createdAt ?? null,
+      lastBackupStatus: lastBackup?.status ?? null,
+    },
+  };
+}
+
+/**
+ * Reads the most recent Guardian run's logged health snapshot + timestamp —
+ * what "Last checked: [timestamp]" on the Monitoring screen refers to. Falls
+ * back to a live computation (with no "last checked" time) if Guardian
+ * hasn't run yet, e.g. on a brand-new install.
+ */
+export async function getLatestHealthSnapshot(): Promise<{ checkedAt: string | null; health: SystemHealthSnapshot }> {
+  const row = getDb()
+    .prepare(
+      `SELECT created_at, detail FROM security_events
+       WHERE type = 'ai_interaction' AND json_extract(detail, '$.agent') = 'guardian'
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get() as { created_at: string; detail: string } | undefined;
+
+  if (row) {
+    const detail = JSON.parse(row.detail) as { health?: SystemHealthSnapshot };
+    if (detail.health) return { checkedAt: row.created_at, health: detail.health };
+  }
+
+  return { checkedAt: null, health: await computeHealthSnapshot() };
+}
+
 /**
  * Runs Guardian's checks and routes each finding to one of the three
  * channels (Guardian.md). Passive/urgent findings become Notification rows
@@ -159,8 +224,10 @@ export async function runGuardianCheck(): Promise<{ passive: number; urgent: num
     else passive += 1;
   }
 
+  const health = await computeHealthSnapshot();
+
   // Guardian has no requesting user (AI_Permissions.md: "not tied to a
   // requesting user") — empty string stores NULL, same reasoning as Advisor's log above.
-  await logAiInteraction("guardian", "", { findingsCount: findings.length, passive, urgent, advisorHandoffs });
+  await logAiInteraction("guardian", "", { findingsCount: findings.length, passive, urgent, advisorHandoffs, health });
   return { passive, urgent, advisorHandoffs };
 }

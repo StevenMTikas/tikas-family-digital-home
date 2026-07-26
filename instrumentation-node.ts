@@ -9,10 +9,13 @@
 import { getLastAgentRunAt, hoursSince } from "./lib/core/ai/scheduler";
 import { runGuardianCheck } from "./lib/core/ai/guardian";
 import { runAdvisorDetectors, expireStaleSuggestions } from "./lib/core/ai/advisor";
+import { purgeOldSecurityEvents } from "./lib/core/logging";
+import { runBackup, getLastBackup } from "./lib/core/backup";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const GUARDIAN_INTERVAL_HOURS = 24; // Guardian.md: "MVP: runs once per day"
 const ADVISOR_INTERVAL_HOURS = 24 * 7; // Advisor.md: "a weekly check"
+const BACKUP_INTERVAL_HOURS = 24; // Backup.md: "automatic daily backup"
 
 async function tick() {
   try {
@@ -37,6 +40,21 @@ async function tick() {
     await expireStaleSuggestions();
   } catch (err) {
     console.error("[scheduler] Suggestion expiration pass failed:", err);
+  }
+
+  try {
+    const lastBackup = await getLastBackup();
+    if (!lastBackup || hoursSince(lastBackup.createdAt) >= BACKUP_INTERVAL_HOURS) {
+      await runBackup();
+    }
+  } catch (err) {
+    console.error("[scheduler] Daily backup failed:", err);
+  }
+
+  try {
+    await purgeOldSecurityEvents();
+  } catch (err) {
+    console.error("[scheduler] Security event purge failed:", err);
   }
 }
 

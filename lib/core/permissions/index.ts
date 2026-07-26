@@ -137,7 +137,7 @@ interface FolderRow {
  * parent's, walked recursively. See Folder_Permissions.md's Nesting &
  * Inheritance section.
  */
-function resolveFolderPermissions(folderId: string): FolderPermissionGrants | null {
+export function resolveFolderPermissions(folderId: string): FolderPermissionGrants | null {
   const folder = getDb()
     .prepare(`SELECT id, parent_folder_id, inherits_permissions, permissions FROM folders WHERE id = ?`)
     .get(folderId) as FolderRow | undefined;

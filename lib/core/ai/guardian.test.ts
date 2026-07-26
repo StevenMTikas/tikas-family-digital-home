@@ -1,10 +1,13 @@
 process.env.DATABASE_PATH = ":memory:";
+// Isolates computeHealthSnapshot's backup check from whatever real backups
+// happen to exist on disk under the project's actual backups/ directory.
+process.env.BACKUP_DIR = "/tmp/tikas-guardian-test-backups-does-not-exist";
 
 import fs from "fs";
 import path from "path";
 import { beforeAll, describe, it, expect } from "vitest";
 import { getDb } from "@/db/client";
-import { detectGuardianFindings } from "./guardian";
+import { detectGuardianFindings, computeHealthSnapshot, getLatestHealthSnapshot } from "./guardian";
 
 const NOW = new Date("2026-07-25T12:00:00Z");
 function daysAgo(days: number): string {
@@ -94,5 +97,41 @@ describe("detectGuardianFindings", () => {
   it("routes every non-disk finding to the passive channel for MVP", () => {
     const findings = detectGuardianFindings(NOW).filter((f) => !f.rawFinding.includes("Disk space"));
     expect(findings.every((f) => f.channel === "passive")).toBe(true);
+  });
+});
+
+describe("computeHealthSnapshot", () => {
+  it("reports device connectivity as an issue when a device is stale", async () => {
+    const snapshot = await computeHealthSnapshot(NOW);
+    expect(snapshot.deviceConnectivity.status).toBe("issue");
+    expect(snapshot.deviceConnectivity.staleDeviceCount).toBe(1);
+  });
+
+  it("reports backup as unknown when no backup has ever run", async () => {
+    const snapshot = await computeHealthSnapshot(NOW);
+    expect(snapshot.backup.status).toBe("unknown");
+    expect(snapshot.backup.lastBackupAt).toBeNull();
+  });
+});
+
+describe("getLatestHealthSnapshot", () => {
+  it("falls back to a live computation with no checkedAt when Guardian has never run", async () => {
+    const { checkedAt, health } = await getLatestHealthSnapshot();
+    expect(checkedAt).toBeNull();
+    expect(health.deviceConnectivity.status).toBe("issue");
+  });
+
+  it("reads back a previously logged snapshot verbatim, with its timestamp", async () => {
+    const db = getDb();
+    const loggedHealth = { diskSpace: { status: "ok", freeRatio: 0.5 }, deviceConnectivity: { status: "ok", staleDeviceCount: 0 }, backup: { status: "ok", lastBackupAt: "2026-07-24T00:00:00.000Z", lastBackupStatus: "success" } };
+    db.prepare(`INSERT INTO security_events (id, type, user_id, detail, created_at) VALUES (?, 'ai_interaction', NULL, ?, ?)`).run(
+      "guardian-run-1",
+      JSON.stringify({ agent: "guardian", health: loggedHealth }),
+      "2026-07-25T06:00:00.000Z"
+    );
+
+    const { checkedAt, health } = await getLatestHealthSnapshot();
+    expect(checkedAt).toBe("2026-07-25T06:00:00.000Z");
+    expect(health).toEqual(loggedHealth);
   });
 });
