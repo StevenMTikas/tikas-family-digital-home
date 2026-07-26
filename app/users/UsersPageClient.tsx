@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { updateMyProfile, createUser, UsersApiError, type NewUserInput } from "@/lib/api/users";
 
 export interface CurrentUser {
@@ -152,7 +153,8 @@ function MyProfileTab({
   }
 
   return (
-    <div className="flex gap-6 max-w-[720px]">
+    <div className="max-w-[720px]">
+    <div className="flex gap-6">
       <div className="bg-surface rounded-2xl p-7 shadow-[0_8px_20px_rgba(58,52,44,0.05)] flex-1">
         <div className="text-xs font-semibold tracking-wide text-ink-muted uppercase mb-4">Editable</div>
         <div className="flex items-center gap-4 mb-5">
@@ -229,6 +231,10 @@ function MyProfileTab({
           </div>
         </div>
       </div>
+    </div>
+      <Link href="/ai-settings" className="inline-block mt-4 text-[13px] font-semibold text-accent-strong">
+        AI Settings — conversation history, what the AI knows about you, suggestions →
+      </Link>
     </div>
   );
 }

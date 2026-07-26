@@ -233,6 +233,11 @@ CREATE TABLE ai_suggestions (
     display_context TEXT,                 -- 'dashboard' or 'contextual:<module>'
     relevancy_score REAL,
     content TEXT NOT NULL,
+    -- Missing from the original entity even though AI_Suggestions.md's
+    -- automatic expiration ("its related event/date has passed") requires
+    -- being able to re-check the specific item a suggestion is about.
+    -- Not a DB-enforced FK since it can point at different tables per module.
+    related_entity_id TEXT,
     generated_at TEXT NOT NULL DEFAULT (datetime('now')),
     expired INTEGER NOT NULL DEFAULT 0,
     expired_at TEXT,

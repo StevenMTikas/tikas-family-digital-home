@@ -16,7 +16,11 @@ export type LogEventType =
   | "permission_changed"
   | "outside_call_approved"
   | "outside_call_denied"
-  | "outside_call_blocked";
+  | "outside_call_blocked"
+  // AI_Architecture.md: "Log every AI interaction through the shared
+  // logging service" — one entry per agent run (Assistant reply, Advisor
+  // suggestion generated, Guardian check), detail carries the agent + action.
+  | "ai_interaction";
 
 export interface LogEvent {
   type: LogEventType;

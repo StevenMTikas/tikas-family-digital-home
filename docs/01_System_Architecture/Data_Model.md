@@ -253,6 +253,7 @@ A stored record of a suggestion the AI made — enables the AI to learn from wha
 | trigger_type | event / weekly_check — how this suggestion was generated (see Advisor.md) |
 | display_context | dashboard, or contextual + which module — governs where it's shown and against which display limit (10 on Dashboard, 2 contextual, see Advisor.md) |
 | relevancy_score | used to prioritize which suggestions display when more exist than the display limit allows; relevancy first, most recent as tiebreak (see Advisor.md) |
+| related_entity_id | id of the specific event/task/document/etc. this suggestion is about — not a DB-enforced FK since it can point at different tables depending on `module`; needed so automatic expiration (AI_Suggestions.md) can re-check whether that item's flagged condition still holds |
 | content | the suggestion text |
 | generated_at | |
 | expired | boolean, set automatically when no longer relevant (see AI_Suggestions.md) |

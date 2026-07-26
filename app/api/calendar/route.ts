@@ -110,5 +110,14 @@ export async function POST(req: NextRequest) {
   insert();
 
   const row = db.prepare(`SELECT * FROM events WHERE id = ?`).get(id) as EventRow;
+
+  // Event-driven Advisor trigger (Advisor.md: "generates a suggestion when
+  // something happens that warrants one — ... a calendar gap detected").
+  // Fire-and-forget — the LLM phrasing call shouldn't block the response,
+  // and a failure here shouldn't fail the event creation that already succeeded.
+  import("@/lib/core/ai/advisor")
+    .then(({ runAdvisorDetectors }) => runAdvisorDetectors("event"))
+    .catch((err) => console.error("[advisor] event-driven check failed:", err));
+
   return NextResponse.json(toEventResponse(row, actor.id, true), { status: 201 });
 }
