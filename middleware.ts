@@ -18,7 +18,13 @@ import { SESSION_COOKIE_NAME, verifySessionCookieValue } from "@/lib/core/sessio
 
 export const config = {
   runtime: "nodejs",
-  matcher: ["/((?!api/auth/login|api/connectors|_next/static|_next/image|favicon.ico|login).*)"],
+  // sw.js/manifest.json/icons are public PWA assets (Notifications.md's
+  // Android push requirement) — a service worker registration request must
+  // never be redirected (the browser spec disallows it outright), same
+  // reasoning as favicon.ico already being excluded here.
+  matcher: [
+    "/((?!api/auth/login|api/connectors|_next/static|_next/image|favicon.ico|sw\\.js|manifest\\.json|icons|login).*)",
+  ],
 };
 
 export function middleware(req: NextRequest) {

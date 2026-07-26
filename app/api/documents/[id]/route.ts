@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { deleteUploadedFile } from "@/lib/storage/files";
+import { removeFromIndex } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -63,6 +64,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   db.prepare(`DELETE FROM documents WHERE id = ?`).run(id);
   await deleteUploadedFile(row.file);
+  removeFromIndex("document", id);
 
   return new NextResponse(null, { status: 204 });
 }

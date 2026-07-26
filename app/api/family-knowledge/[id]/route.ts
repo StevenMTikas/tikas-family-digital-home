@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { indexContent, removeFromIndex } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -63,6 +64,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   db.prepare(`UPDATE family_knowledge_items SET ${setClause} WHERE id = @id`).run({ ...updates, id });
 
   const updated = db.prepare(`SELECT * FROM family_knowledge_items WHERE id = ?`).get(id) as ItemRow;
+  if (editingDetails) {
+    indexContent("family_knowledge", id, `${updated.title} ${updated.category ?? ""} ${updated.content ?? ""}`).catch((err) =>
+      console.error("[search] Failed to re-index family knowledge item:", err)
+    );
+  }
   return NextResponse.json({
     id: updated.id,
     category: updated.category,
@@ -92,5 +98,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   db.prepare(`DELETE FROM family_knowledge_items WHERE id = ?`).run(id);
+  removeFromIndex("family_knowledge", id);
   return new NextResponse(null, { status: 204 });
 }

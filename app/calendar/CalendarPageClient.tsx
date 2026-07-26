@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEscapeKey } from "@/lib/hooks/useEscapeKey";
 import {
   createEvent,
   updateEvent,
@@ -114,7 +115,7 @@ export default function CalendarPageClient({
           <button
             type="button"
             onClick={() => shiftWeek(-7)}
-            className="w-[34px] h-[34px] rounded-[10px] bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
+            className="w-[34px] h-[34px] rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
             aria-label="Previous week"
           >
             ‹
@@ -122,14 +123,14 @@ export default function CalendarPageClient({
           <button
             type="button"
             onClick={() => goToWeek(toISODate(getWeekStart(new Date())))}
-            className="h-[34px] px-4 rounded-[10px] bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] text-[13px] font-semibold text-ink"
+            className="h-[34px] px-4 rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] text-[13px] font-semibold text-ink"
           >
             Today
           </button>
           <button
             type="button"
             onClick={() => shiftWeek(7)}
-            className="w-[34px] h-[34px] rounded-[10px] bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
+            className="w-[34px] h-[34px] rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
             aria-label="Next week"
           >
             ›
@@ -154,7 +155,7 @@ export default function CalendarPageClient({
           <button
             type="button"
             onClick={() => setFormMode("create")}
-            className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold"
+            className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
           >
             + Add Event
           </button>
@@ -173,7 +174,8 @@ export default function CalendarPageClient({
               </div>
               <div
                 className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs font-semibold ${
-                  day.isToday ? "bg-accent text-white" : "text-ink"
+                  // bg-accent fails WCAG AA for white text (~2.9:1, Design_Language.md) — accent-strong passes (~4.66:1)
+                  day.isToday ? "bg-accent-strong text-white" : "text-ink"
                 }`}
               >
                 {day.date}
@@ -254,6 +256,7 @@ function EventDetailModal({
   onEdit: () => void;
   onDeleted: () => void;
 }) {
+  useEscapeKey(true, onClose);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -344,6 +347,7 @@ function EventFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useEscapeKey(true, onClose);
   const initialSplit = initial ? splitDateTime(initial.dateTime) : null;
 
   const [title, setTitle] = useState(initial?.title ?? "");
@@ -409,7 +413,7 @@ function EventFormModal({
               placeholder="e.g. Dentist appointment"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -419,7 +423,7 @@ function EventFormModal({
               rows={2}
               value={description ?? ""}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div className="flex gap-3">
@@ -429,7 +433,7 @@ function EventFormModal({
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
               />
             </div>
             <div className="flex-1">
@@ -441,7 +445,7 @@ function EventFormModal({
                   maxLength={2}
                   value={hour}
                   onChange={(e) => setHour(e.target.value.replace(/\D/g, ""))}
-                  className="w-11 px-0 py-2 rounded-[10px] border border-ink/15 text-[13px] text-center focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="w-11 px-0 py-2 rounded-xl border border-ink/15 text-[13px] text-center focus:outline-none focus:ring-2 focus:ring-accent/40"
                 />
                 <span className="text-sm text-ink-muted font-semibold">:</span>
                 <input
@@ -450,12 +454,12 @@ function EventFormModal({
                   maxLength={2}
                   value={minute}
                   onChange={(e) => setMinute(e.target.value.replace(/\D/g, ""))}
-                  className="w-11 px-0 py-2 rounded-[10px] border border-ink/15 text-[13px] text-center focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="w-11 px-0 py-2 rounded-xl border border-ink/15 text-[13px] text-center focus:outline-none focus:ring-2 focus:ring-accent/40"
                 />
                 <select
                   value={ampm}
                   onChange={(e) => setAmpm(e.target.value as "AM" | "PM")}
-                  className="px-2 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  className="px-2 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
                 >
                   <option>AM</option>
                   <option>PM</option>
@@ -485,7 +489,7 @@ function EventFormModal({
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Visibility</label>
-            <div className="flex rounded-[10px] overflow-hidden border border-ink/15 w-fit">
+            <div className="flex rounded-xl overflow-hidden border border-ink/15 w-fit">
               <button
                 type="button"
                 onClick={() => setVisibility("public")}
@@ -511,7 +515,7 @@ function EventFormModal({
             <select
               value={reminderLeadTime ?? REMINDER_OPTIONS[0]}
               onChange={(e) => setReminderLeadTime(e.target.value)}
-              className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             >
               {REMINDER_OPTIONS.map((opt) => (
                 <option key={opt}>{opt}</option>

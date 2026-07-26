@@ -14,7 +14,7 @@ const IV_LENGTH = 12;
 
 // Each caller gets its own derived key (different scrypt salt) from its own
 // env var, so a leaked backup key doesn't also expose password entries.
-export type SecretBoxContext = "password" | "backup";
+export type SecretBoxContext = "password" | "backup" | "email";
 
 // Password context's salt is unchanged from the original single-purpose
 // version of this module — changing it would silently break decryption of
@@ -22,10 +22,17 @@ export type SecretBoxContext = "password" | "backup";
 const SCRYPT_SALT: Record<SecretBoxContext, string> = {
   password: "tikas-family-knowledge",
   backup: "tikas-family-knowledge:backup",
+  email: "tikas-family-knowledge:email",
+};
+
+const ENV_VAR_BY_CONTEXT: Record<SecretBoxContext, string> = {
+  password: "PASSWORD_ENCRYPTION_KEY",
+  backup: "BACKUP_ENCRYPTION_KEY",
+  email: "EMAIL_ENCRYPTION_KEY",
 };
 
 function getKey(context: SecretBoxContext): Buffer {
-  const envVar = context === "backup" ? "BACKUP_ENCRYPTION_KEY" : "PASSWORD_ENCRYPTION_KEY";
+  const envVar = ENV_VAR_BY_CONTEXT[context];
   const secret = process.env[envVar];
   if (!secret) throw new Error(`${envVar} is not set — see .env.example`);
   return scryptSync(secret, SCRYPT_SALT[context], 32);

@@ -4,6 +4,7 @@
 // `npm run db:init`).
 
 import Database from "better-sqlite3";
+import * as sqliteVec from "sqlite-vec";
 import path from "path";
 
 let db: Database.Database | undefined;
@@ -16,6 +17,9 @@ export function getDb(): Database.Database {
   if (!db) {
     db = new Database(getDbPath());
     db.pragma("journal_mode = WAL");
+    // Loads the vec0 module used by the vec_content virtual table
+    // (db/schema.sql) — Search.md/Decision_Log.md #005's sqlite-vec choice.
+    sqliteVec.load(db);
   }
   return db;
 }

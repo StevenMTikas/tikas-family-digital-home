@@ -19,10 +19,10 @@ Traces the step-by-step screen-to-screen paths a family member takes through rep
 
 ## Features (Representative Flows)
 
-### 1. First Login (New User, Trusted Device)
+### 1. First Login (New User)
 
-1. Super Admin creates the account via **Add User** (`Users.md`) and adds the family member's device (`Security_Architecture.md`'s device trust model), giving them the initial username/password.
-2. On that trusted device, the family member opens the app and lands on the **login screen** (`Authentication.md`) — username and password only, no other fields.
+1. Super Admin creates the account via **Add User** (`Users.md`), giving them the initial username/password.
+2. The family member opens the app and lands on the **login screen** (`Authentication.md`) — username and password only, no other fields (no device-level gate for MVP — see `Authentication.md`'s correction note).
 3. On successful login, they land on their **Dashboard** (`Dashboard.md`), showing the Morning Briefing.
 4. Session stays logged in indefinitely on this device — no further login screens unless signed out manually.
 
@@ -59,8 +59,7 @@ Traces the step-by-step screen-to-screen paths a family member takes through rep
 1. Super Admin opens **Administration → Add User** (`Administration.md`, `Users.md`).
 2. Fills the required fields: name, relationship, date of birth, initial username/password, role.
 3. If the new member is a child, Super Admin optionally assigns admin_scope to a parent (`Authorization.md`).
-4. Super Admin adds the family member's device (`Security_Architecture.md`) so they can log in.
-5. New account is ready — family member proceeds through the First Login flow above.
+4. New account is ready — family member proceeds through the First Login flow above.
 
 ### 7. Reviewing and Acting on an Advisor Suggestion
 

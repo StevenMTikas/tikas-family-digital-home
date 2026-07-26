@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secret-box";
+import { indexContent, removeFromIndex } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -76,7 +77,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const setClause = Object.keys(updates).map((f) => `${f} = @${f}`).join(", ");
   db.prepare(`UPDATE password_entries SET ${setClause} WHERE id = @id`).run({ ...updates, id });
 
-  const updated = db.prepare(`SELECT id, service_name, username, url, notes, updated_at FROM password_entries WHERE id = ?`).get(id);
+  const updated = db.prepare(`SELECT id, service_name, username, url, notes, updated_at FROM password_entries WHERE id = ?`).get(id) as {
+    service_name: string;
+    url: string | null;
+    notes: string | null;
+  };
+  indexContent("password", id, `${updated.service_name} ${updated.url ?? ""} ${updated.notes ?? ""}`).catch((err) =>
+    console.error("[search] Failed to re-index password entry:", err)
+  );
   return NextResponse.json(updated);
 }
 
@@ -97,5 +105,6 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   }
 
   db.prepare(`DELETE FROM password_entries WHERE id = ?`).run(id);
+  removeFromIndex("password", id);
   return new NextResponse(null, { status: 204 });
 }

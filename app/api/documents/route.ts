@@ -9,6 +9,7 @@ import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
 import { saveUploadedFile } from "@/lib/storage/files";
+import { indexContent } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -106,5 +107,7 @@ export async function POST(req: NextRequest) {
   ).run(id, storedPath, title.trim(), folderId, typeof category === "string" ? category : null, isSensitive ? 1 : 0, actorId);
 
   const row = db.prepare(`SELECT * FROM documents WHERE id = ?`).get(id) as DocumentRow;
+  // Search.md: title/category are the fields Documents indexes for cross-content search.
+  indexContent("document", id, `${row.title} ${row.category ?? ""}`).catch((err) => console.error("[search] Failed to index document:", err));
   return NextResponse.json(toDocResponse(row, true), { status: 201 });
 }

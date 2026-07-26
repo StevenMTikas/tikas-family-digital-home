@@ -21,6 +21,7 @@ import { getModelForRole, logAiInteraction } from "./index";
 import { getBaseLayerPrompt } from "./base-layer";
 import { GUARDIAN_ROLE_PROMPT } from "./roles";
 import { getLastBackup } from "@/lib/core/backup";
+import { createNotification } from "@/lib/core/notifications";
 
 export type GuardianChannel = "passive" | "urgent" | "advisor";
 
@@ -217,9 +218,7 @@ export async function runGuardianCheck(): Promise<{ passive: number; urgent: num
     }
 
     if (!superAdminId) continue;
-    db.prepare(
-      `INSERT INTO notifications (id, user_id, text, severity) VALUES (?, ?, ?, ?)`
-    ).run(randomUUID(), superAdminId, text, finding.channel === "urgent" ? "urgent" : "routine");
+    await createNotification({ userId: superAdminId, text, severity: finding.channel === "urgent" ? "urgent" : "routine" });
     if (finding.channel === "urgent") urgent += 1;
     else passive += 1;
   }

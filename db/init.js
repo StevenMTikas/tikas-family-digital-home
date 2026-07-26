@@ -5,6 +5,7 @@
 // entry #003 for why SQLite was chosen for MVP.
 
 const Database = require("better-sqlite3");
+const sqliteVec = require("sqlite-vec");
 const fs = require("fs");
 const path = require("path");
 
@@ -18,6 +19,10 @@ const db = new Database(DB_PATH);
 // lock (Decision_Log.md #003) — short transactions, WAL mode, monitor for
 // contention before considering a Postgres migration.
 db.pragma("journal_mode = WAL");
+
+// Must load before exec(schema) — schema.sql's CREATE VIRTUAL TABLE ... USING
+// vec0(...) statement needs the module registered first (Search.md).
+sqliteVec.load(db);
 
 db.exec(schema);
 

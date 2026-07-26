@@ -22,6 +22,12 @@ export default function LoginPage() {
     try {
       await login(username, password);
       router.push("/dashboard");
+      // router.push alone leaves the root layout's server-rendered output
+      // (NavShell, AssistantBubble, NotificationsCenter — all gated on the
+      // authenticated user id read via headers()) stuck on its pre-login
+      // render until something forces Next to refetch server data for the
+      // route tree; router.refresh() does exactly that.
+      router.refresh();
     } catch (err) {
       setError(err instanceof LoginError ? err.message : "Something went wrong. Try again.");
     } finally {
@@ -57,7 +63,7 @@ export default function LoginPage() {
               placeholder="e.g. dad.tikas"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-3.5 py-[11px] rounded-[10px] border border-ink/15 text-sm font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3.5 py-[11px] rounded-xl border border-ink/15 text-sm font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -71,7 +77,7 @@ export default function LoginPage() {
               placeholder="Enter your password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3.5 py-[11px] rounded-[10px] border border-ink/15 text-sm font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3.5 py-[11px] rounded-xl border border-ink/15 text-sm font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
 
@@ -91,8 +97,6 @@ export default function LoginPage() {
         </form>
 
         <div className="relative mt-5 text-[11.5px] text-ink-muted text-center leading-relaxed">
-          This device must already be trusted by your Super Admin.
-          <br />
           Forgotten password? Ask your Super Admin to reset it.
         </div>
       </div>

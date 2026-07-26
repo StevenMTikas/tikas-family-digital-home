@@ -8,6 +8,7 @@ import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
+import { indexContent } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -87,5 +88,8 @@ export async function POST(req: NextRequest) {
   ).run(id, category, title, content, isSensitive ? 1 : 0, folderId, actorId);
 
   const row = db.prepare(`SELECT * FROM family_knowledge_items WHERE id = ?`).get(id) as ItemRow;
+  indexContent("family_knowledge", id, `${row.title} ${row.category ?? ""} ${row.content ?? ""}`).catch((err) =>
+    console.error("[search] Failed to index family knowledge item:", err)
+  );
   return NextResponse.json(toItemResponse(row, true, true), { status: 201 });
 }

@@ -24,3 +24,7 @@ export async function login(username: string, password: string): Promise<LoggedI
 
   return res.json();
 }
+
+export async function logout(): Promise<void> {
+  await fetch("/api/auth/logout", { method: "POST" });
+}

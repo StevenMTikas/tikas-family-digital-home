@@ -12,7 +12,8 @@
 // "even before any AI is wired in."
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEscapeKey } from "@/lib/hooks/useEscapeKey";
 import {
   getDocuments,
   uploadDocument,
@@ -90,7 +91,13 @@ export default function ContentPageClient({
   familyMembers: FamilyMemberOption[];
   currentUserId: string;
 }) {
-  const [tab, setTab] = useState<Tab>("documents");
+  // Lets a Search result (Search.md: "navigates to that item's detail view
+  // in its home module") land on the right tab — read once on initial mount,
+  // not kept in sync afterward, so switching tabs manually doesn't fight the URL.
+  const initialTab = useSearchParams().get("tab");
+  const [tab, setTab] = useState<Tab>(
+    initialTab === "photos" || initialTab === "memory" || initialTab === "knowledge" ? initialTab : "documents"
+  );
 
   return (
     <main className="p-6 max-w-[1000px]">
@@ -171,7 +178,7 @@ function DocumentsTab({
         <button
           type="button"
           onClick={() => setShowUpload(true)}
-          className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Upload
         </button>
@@ -246,6 +253,7 @@ function DocumentsTab({
 }
 
 function UploadDocumentModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useEscapeKey(true, onClose);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
@@ -289,7 +297,7 @@ function UploadDocumentModal({ onClose, onSaved }: { onClose: () => void; onSave
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -300,7 +308,7 @@ function UploadDocumentModal({ onClose, onSaved }: { onClose: () => void; onSave
               type="text"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <label className="flex items-center gap-2 text-[13px] text-ink">
@@ -359,7 +367,7 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
         <button
           type="button"
           onClick={() => setShowUpload(true)}
-          className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Upload
         </button>
@@ -419,6 +427,7 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
 }
 
 function UploadPhotoModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useEscapeKey(true, onClose);
   const [file, setFile] = useState<File | null>(null);
   const [location, setLocation] = useState("");
   const [tags, setTags] = useState("");
@@ -462,7 +471,7 @@ function UploadPhotoModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
               placeholder="e.g. Malachi, birthday cake"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -471,12 +480,12 @@ function UploadPhotoModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
               type="text"
               value={location}
               onChange={(e) => setLocation(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Visibility</label>
-            <div className="flex rounded-[10px] overflow-hidden border border-ink/15 w-fit">
+            <div className="flex rounded-xl overflow-hidden border border-ink/15 w-fit">
               <button type="button" onClick={() => setVisibility("public")} className={`px-4 py-1.5 text-xs font-semibold ${visibility === "public" ? "bg-accent-strong text-white" : "bg-surface text-ink-muted"}`}>Public</button>
               <button type="button" onClick={() => setVisibility("private")} className={`px-4 py-1.5 text-xs font-semibold ${visibility === "private" ? "bg-accent-strong text-white" : "bg-surface text-ink-muted"}`}>Private</button>
             </div>
@@ -534,7 +543,7 @@ function MemoryTab({
         <button
           type="button"
           onClick={() => setShowForm(true)}
-          className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + New Memory
         </button>
@@ -562,12 +571,12 @@ function MemoryTab({
                 <div className="flex gap-2 mt-3.5 flex-wrap">
                   {memory.photoIds.map((pid) => (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img key={pid} src={photoFileUrl(pid)} alt="" className="w-14 h-14 rounded-[10px] object-cover" />
+                    <img key={pid} src={photoFileUrl(pid)} alt="" className="w-14 h-14 rounded-xl object-cover" />
                   ))}
                   {memory.documentIds.map((did) => {
                     const doc = documents.find((d) => d.id === did);
                     return (
-                      <div key={did} className="flex items-center gap-1.5 px-3 py-2 rounded-[10px] bg-base text-[11.5px] text-ink">
+                      <div key={did} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-base text-[11.5px] text-ink">
                         📄 {doc?.title ?? "Document"}
                       </div>
                     );
@@ -609,6 +618,7 @@ function NewMemoryModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useEscapeKey(true, onClose);
   const [title, setTitle] = useState("");
   const [captionNotes, setCaptionNotes] = useState("");
   const [visibility, setVisibility] = useState<"public" | "private">("public");
@@ -656,11 +666,11 @@ function NewMemoryModal({
         <div className="mt-5 flex flex-col gap-3.5">
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Notes</label>
-            <textarea rows={3} value={captionNotes} onChange={(e) => setCaptionNotes(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink resize-none focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <textarea rows={3} value={captionNotes} onChange={(e) => setCaptionNotes(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink resize-none focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           {photos.length > 0 && (
             <div>
@@ -688,7 +698,7 @@ function NewMemoryModal({
           )}
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Visibility</label>
-            <div className="flex rounded-[10px] overflow-hidden border border-ink/15 w-fit">
+            <div className="flex rounded-xl overflow-hidden border border-ink/15 w-fit">
               <button type="button" onClick={() => setVisibility("public")} className={`px-4 py-1.5 text-xs font-semibold ${visibility === "public" ? "bg-accent-strong text-white" : "bg-surface text-ink-muted"}`}>Public</button>
               <button type="button" onClick={() => setVisibility("private")} className={`px-4 py-1.5 text-xs font-semibold ${visibility === "private" ? "bg-accent-strong text-white" : "bg-surface text-ink-muted"}`}>Private</button>
             </div>
@@ -771,7 +781,7 @@ function FamilyKnowledgeTab({ items, passwords: initialPasswords }: { items: Fam
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-[12.5px] text-ink-muted">Categories</div>
-        <button type="button" onClick={() => setShowItemForm(true)} className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold">
+        <button type="button" onClick={() => setShowItemForm(true)} className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold">
           + Add Item
         </button>
       </div>
@@ -850,6 +860,7 @@ function FamilyKnowledgeTab({ items, passwords: initialPasswords }: { items: Fam
 }
 
 function AddKnowledgeItemModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useEscapeKey(true, onClose);
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState("");
   const [content, setContent] = useState("");
@@ -881,15 +892,15 @@ function AddKnowledgeItemModal({ onClose, onSaved }: { onClose: () => void; onSa
         <div className="mt-5 flex flex-col gap-3.5">
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Title</label>
-            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Category</label>
-            <input type="text" placeholder="e.g. Contacts, Medical, Home, Insurance" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" placeholder="e.g. Contacts, Medical, Home, Insurance" value={category} onChange={(e) => setCategory(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Content</label>
-            <textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink resize-none focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <textarea rows={3} value={content} onChange={(e) => setContent(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink resize-none focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <label className="flex items-center gap-2 text-[13px] text-ink">
             <input type="checkbox" checked={isSensitive} onChange={(e) => setIsSensitive(e.target.checked)} />
@@ -909,6 +920,7 @@ function AddKnowledgeItemModal({ onClose, onSaved }: { onClose: () => void; onSa
 }
 
 function AddPasswordModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  useEscapeKey(true, onClose);
   const [serviceName, setServiceName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -947,23 +959,23 @@ function AddPasswordModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
         <div className="mt-5 flex flex-col gap-3.5">
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Service Name</label>
-            <input type="text" placeholder="e.g. Netflix" value={serviceName} onChange={(e) => setServiceName(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" placeholder="e.g. Netflix" value={serviceName} onChange={(e) => setServiceName(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Username</label>
-            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Password</label>
-            <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink font-mono focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink font-mono focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">URL</label>
-            <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={url} onChange={(e) => setUrl(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Notes</label>
-            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
+            <input type="text" value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40" />
           </div>
         </div>
         {error && <p className="text-xs text-urgent mt-3">{error}</p>}

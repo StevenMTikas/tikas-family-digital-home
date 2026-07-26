@@ -8,6 +8,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useEscapeKey } from "@/lib/hooks/useEscapeKey";
 import {
   createTask,
   updateTask,
@@ -167,7 +168,7 @@ export default function TasksPageClient({
         <button
           type="button"
           onClick={() => setFormMode("create")}
-          className="h-[34px] px-4.5 rounded-[10px] bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Add Task
         </button>
@@ -228,6 +229,7 @@ function TaskDetailModal({
   onEdit: () => void;
   onDeleted: () => void;
 }) {
+  useEscapeKey(true, onClose);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const done = task.status === "done";
@@ -323,6 +325,7 @@ function TaskFormModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  useEscapeKey(true, onClose);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
   const [dueDate, setDueDate] = useState(initial?.dueDate ?? "");
@@ -377,7 +380,7 @@ function TaskFormModal({
               placeholder="e.g. Clean room"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -387,7 +390,7 @@ function TaskFormModal({
               rows={2}
               value={description ?? ""}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 resize-none focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -396,7 +399,7 @@ function TaskFormModal({
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           {canAssignToOthers && (
@@ -420,7 +423,7 @@ function TaskFormModal({
           )}
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Visibility</label>
-            <div className="flex rounded-[10px] overflow-hidden border border-ink/15 w-fit">
+            <div className="flex rounded-xl overflow-hidden border border-ink/15 w-fit">
               <button
                 type="button"
                 onClick={() => setVisibility("public")}

@@ -65,6 +65,7 @@ Represents a trusted computer or phone running a connector.
 | created_by | |
 | visibility | public (default) / private — private events are only visible to the creator and admins (see Calendar.md) |
 | reminder_lead_time | AI/system reminds as the date approaches; delivered as a real-time Notification (see Calendar.md) |
+| reminder_sent_at | set once the scheduler has fired this event's reminder, so it never fires twice (Phase 6) |
 
 ### Event_Assignment
 Join table — an event can be assigned to multiple family members.
@@ -87,6 +88,7 @@ Join table — an event can be assigned to multiple family members.
 | created_by | |
 | assigned_by | user who assigned the task; equals owner_id for self-assigned tasks. Only an Admin/Super Admin can set this to someone other than the owner (see Tasks.md) |
 | visibility | public (default) / private — same model as Event visibility (see Calendar.md) |
+| reminder_sent_at | set once the scheduler has fired this task's due-date reminder (Phase 6) |
 
 *Sub-tasks and recurring tasks are not in MVP scope — flat task list only. See Future Enhancements.*
 
@@ -108,6 +110,7 @@ Join table — an event can be assigned to multiple family members.
 | sync_status | `local` (uploaded directly) / `metadata_only` (connector reported it, file not yet pulled) / `fetched` (connector-sourced and the file is now on the host) |
 | removed_from_source_at | set, not deleted, if a later sync no longer finds the file on the device — keeps the record in case a Memory or elsewhere still references it (resolves File_Connector_Architecture.md's open Question on this) |
 | file_requested_at | set when a family member opens/downloads a `metadata_only` document, so the source device's connector knows to upload it on its next check-in |
+| embedding | vector embedding over title/category for cross-content search (Phase 6, see Search.md) |
 
 *No versioning in MVP — each document is the current file only. Versioning is a commercial-app requirement, not MVP. See Future Enhancements.*
 
@@ -139,6 +142,7 @@ Represents a permission boundary for documents (and potentially other content ty
 | event_link | optional link to a related Event, populated from the AI's "what event is this from?" prompt (see Photos.md) |
 | source_device_id, source_path, source_modified_at, sync_status, removed_from_source_at, file_requested_at | same meaning as Document's connector-sourced fields above (see File_Connector_Architecture.md) |
 | thumbnail | small preview image sent with metadata at sync time, so a `metadata_only` photo still renders something before the full file is fetched |
+| embedding | vector embedding over tags/location for cross-content search (Phase 6, see Search.md) |
 
 The AI can prompt the uploader to help categorize a new photo at upload time — e.g., *"Who is in this picture?" / "Where was it taken?" / "What event is this from?"* — populating tags/location/event linkage. These tags are what later power searches like "show me all church outreach pictures" or "find every photo with Malachi."
 
@@ -185,6 +189,7 @@ A general-purpose "family safety deposit box" entry — contact info, medical co
 | folder_id / permissions | governs who can view this item — some entries (e.g., a general contact) may be visible to everyone; others (e.g., a specific medical record) may be restricted |
 | created_by | |
 | updated_at | |
+| embedding | vector embedding for cross-content search (Phase 6, see Search.md, `lib/core/search`) |
 
 ### Password_Entry
 Structured, browser-manager-style credential storage — kept separate from the free-text Family_Knowledge_Item shape (see Family_Knowledge.md).
@@ -201,6 +206,7 @@ Structured, browser-manager-style credential storage — kept separate from the 
 | is_sensitive | true by default, always — credentials are inherently sensitive |
 | created_by | |
 | updated_at | |
+| embedding | vector embedding over service_name/notes/url only — the password itself is never embedded (Phase 6, see Search.md) |
 
 ### Conversation
 A saved chat thread between a user and the Assistant (per Assistant.md).
@@ -235,6 +241,7 @@ A user's Standing Integration Connection to their personal email account (see Em
 | email_address | |
 | status | connected / revoked |
 | connected_at | |
+| imap_host, imap_port, imap_username, encrypted_password | connection details needed to fetch a live summary on demand (Phase 6) — not in this entity's original design, added because "no raw email content persisted" still requires reconnecting each time; the password is encrypted the same way Password_Entry's is (`lib/crypto/secret-box`), under its own "email" context |
 
 ### AI_Memory
 The AI's curated, per-user store of distilled facts — the first, fastest context layer the AI checks (Tier 1 memory, per `AI_Architecture.md`). See `AI_Memory.md` for full detail.
@@ -282,10 +289,22 @@ A stored record of a suggestion the AI made — enables the AI to learn from wha
 | text | |
 | created_at | |
 | related_suggestion_id | optional link to an AI_Suggestion, when applicable |
+| related_event_id, related_task_id | optional link to the Event/Task a reminder is about (Phase 6) — same pattern as related_suggestion_id, backing Notifications.md's tap-routing rule |
 | liked | optional thumbs up/down, when applicable |
 | severity | routine (default) / urgent — determines visual treatment, e.g. red for urgent (see Notifications.md, Guardian.md) |
 
 *MVP delivers notifications real-time only. Persisting notification history (time, text, liked/not) with this table is a near-term enhancement, not core MVP — see Future Enhancements.*
+
+### Push_Subscription
+A browser/device's Web Push registration (Phase 6, see Notifications.md's "Android push for MVP"). Not part of the module doc's own Data Stored section — this is the storage the feature genuinely needs, not a new family-data concept; a user can hold more than one (e.g. phone + desktop Chrome).
+
+| Field | Notes |
+|---|---|
+| id | |
+| user_id | |
+| endpoint | unique per browser/device push registration |
+| p256dh, auth | the subscription's encryption keys, required to send an encrypted push payload |
+| created_at | |
 
 ## Relationships (Summary)
 

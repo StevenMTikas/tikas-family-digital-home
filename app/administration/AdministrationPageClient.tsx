@@ -153,7 +153,11 @@ function healthCards(health: HealthSnapshot) {
             : "No backup has run yet"
         }
       />
-      <HealthCard label="Connector Sync" status="unknown" detail="Not available yet — file connectors aren't built (Phase 5)." />
+      {/* No separate "Connector Sync" card — Device Connectivity above already
+          covers every row in the devices table (connectors included, per
+          checkStaleDevices' unfiltered device_type query), so a second card
+          here was pure duplication showing a stale "not built yet" claim
+          left over from before Phase 5 actually built connectors. */}
     </>
   );
 }
@@ -268,7 +272,7 @@ function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss
         Copy this device id and token into the connector script&apos;s config on {device.deviceName}. It won&apos;t
         be shown again — use &quot;Regenerate Token&quot; below if it&apos;s lost.
       </p>
-      <div className="font-mono text-[12px] bg-surface rounded-[10px] p-3 break-all">
+      <div className="font-mono text-[12px] bg-surface rounded-xl p-3 break-all">
         <div>
           <span className="text-ink-muted">DEVICE_ID=</span>
           {device.id}
@@ -362,7 +366,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
               <select
                 value={userId}
                 onChange={(e) => setUserId(e.target.value)}
-                className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink"
               >
                 <option value="">Select…</option>
                 {familyMembers.map((m) => (
@@ -377,7 +381,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
               <select
                 value={deviceType}
                 onChange={(e) => setDeviceType(e.target.value as "computer" | "phone")}
-                className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink"
               >
                 <option value="computer">Computer</option>
                 <option value="phone">Phone</option>
@@ -391,7 +395,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
               placeholder="e.g. Vee's Laptop"
               value={deviceName}
               onChange={(e) => setDeviceName(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70"
             />
           </div>
 
@@ -409,13 +413,15 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
                 ))}
               </div>
               <p className="text-[11px] text-ink-muted mt-1">
-                Leave both unchecked to trust this device for login only, with no connector.
+                Leave both unchecked to just keep a record of this device (shown in their My Devices list) without
+                setting up a file connector. This doesn't affect whether they can log in — login only needs a
+                username and password (see Authentication.md).
               </p>
             </div>
           ) : (
             <p className="text-[11.5px] text-ink-muted">
-              Phone connectors aren&apos;t supported yet — this pairs the phone for login trust only. See
-              File_Connector_Architecture.md.
+              Phone connectors aren&apos;t supported yet — this just keeps a record of the phone (shown in their My
+              Devices list). See File_Connector_Architecture.md.
             </p>
           )}
         </div>
@@ -562,7 +568,7 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
             key={f.id}
             type="button"
             onClick={() => setSelectedId(f.id)}
-            className={`w-full text-left px-3 py-2 rounded-[10px] text-[13px] flex items-center justify-between ${
+            className={`w-full text-left px-3 py-2 rounded-xl text-[13px] flex items-center justify-between ${
               f.id === selectedId ? "bg-accent/15 text-ink font-semibold" : "text-ink-muted hover:bg-ink/[0.04]"
             }`}
           >
@@ -607,7 +613,7 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
           <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-2">
             Permissions {!canEditGrants && "(read-only while inheriting)"}
           </div>
-          <div className="border border-ink/10 rounded-[10px] overflow-hidden mb-3">
+          <div className="border border-ink/10 rounded-xl overflow-hidden mb-3">
             <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2 bg-ink/[0.03] text-[11px] font-semibold text-ink-muted">
               <div>Who</div>
               <div>Level</div>
@@ -650,7 +656,7 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
                 <select
                   value={newGrantUserId}
                   onChange={(e) => setNewGrantUserId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+                  className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink"
                 >
                   <option value="">Select a family member…</option>
                   {familyMembers.map((m) => (
@@ -665,7 +671,7 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
                 <select
                   value={newGrantLevel}
                   onChange={(e) => setNewGrantLevel(e.target.value as FolderAccessLevel)}
-                  className="px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink capitalize"
+                  className="px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink capitalize"
                 >
                   {ACCESS_LEVELS.map((l) => (
                     <option key={l} value={l}>
@@ -740,7 +746,7 @@ function LogsTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) {
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+          className="px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink"
         >
           <option value="">All event types</option>
           {Object.entries(EVENT_TYPE_LABELS).map(([type, label]) => (
@@ -752,7 +758,7 @@ function LogsTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) {
         <select
           value={userFilter}
           onChange={(e) => setUserFilter(e.target.value)}
-          className="px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+          className="px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink"
         >
           <option value="">All family members</option>
           {familyMembers.map((m) => (
@@ -886,7 +892,7 @@ function BackupTab() {
                   )}
                 </div>
                 {confirmingRestoreId === b.id && (
-                  <div className="mt-2 bg-urgent/[0.08] border border-urgent/30 rounded-[10px] p-3">
+                  <div className="mt-2 bg-urgent/[0.08] border border-urgent/30 rounded-xl p-3">
                     <p className="text-[12.5px] text-ink mb-2">
                       This replaces the current database and uploaded files with this backup&apos;s contents. The
                       current state is saved aside first, but this cannot be casually undone. Continue?

@@ -7,6 +7,7 @@ import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser, hasPermission, type AuthUser } from "@/lib/core/permissions";
 import { saveUploadedFile } from "@/lib/storage/files";
+import { indexContent } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -105,5 +106,8 @@ export async function POST(req: NextRequest) {
   );
 
   const row = db.prepare(`SELECT * FROM photos WHERE id = ?`).get(id) as PhotoRow;
+  // Search.md: Photos have no title/content field — tags/location are what's indexed (Data_Model.md).
+  const searchText = [...tags, row.location ?? ""].join(" ");
+  indexContent("photo", id, searchText).catch((err) => console.error("[search] Failed to index photo:", err));
   return NextResponse.json(toPhotoResponse(row, actor), { status: 201 });
 }

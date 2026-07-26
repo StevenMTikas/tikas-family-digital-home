@@ -10,6 +10,7 @@ import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
 import { encryptSecret } from "@/lib/crypto/secret-box";
+import { indexContent } from "@/lib/core/search";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -99,5 +100,9 @@ export async function POST(req: NextRequest) {
   const row = db
     .prepare(`SELECT id, service_name, username, url, notes, folder_id, created_by, updated_at FROM password_entries WHERE id = ?`)
     .get(id) as PasswordRow;
+  // Search.md/Data_Model.md: never embed the password itself — service_name/url/notes only.
+  indexContent("password", id, `${row.service_name} ${row.url ?? ""} ${row.notes ?? ""}`).catch((err) =>
+    console.error("[search] Failed to index password entry:", err)
+  );
   return NextResponse.json(toMaskedResponse(row, true, true), { status: 201 });
 }

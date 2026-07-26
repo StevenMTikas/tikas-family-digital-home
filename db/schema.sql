@@ -76,7 +76,8 @@ CREATE TABLE events (
     date_time TEXT NOT NULL,
     created_by TEXT NOT NULL REFERENCES users(id),
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
-    reminder_lead_time TEXT
+    reminder_lead_time TEXT,
+    reminder_sent_at TEXT               -- set once the scheduler fires this event's reminder, so it never fires twice
 );
 
 CREATE TABLE event_assignments (
@@ -99,7 +100,8 @@ CREATE TABLE tasks (
     status TEXT NOT NULL DEFAULT 'not_done' CHECK (status IN ('not_done', 'done')),
     created_by TEXT NOT NULL REFERENCES users(id),
     assigned_by TEXT NOT NULL REFERENCES users(id),
-    visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private'))
+    visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+    reminder_sent_at TEXT               -- set once the scheduler fires this task's due-date reminder
 );
 
 -- ── Document ─────────────────────────────────────────────────────────
@@ -124,7 +126,8 @@ CREATE TABLE documents (
     source_modified_at TEXT,              -- the device's last-reported mtime; distinguishes a real edit from an unchanged re-sync
     sync_status TEXT NOT NULL DEFAULT 'local' CHECK (sync_status IN ('local', 'metadata_only', 'fetched')),
     removed_from_source_at TEXT,
-    file_requested_at TEXT                -- set when a family member asks for a not-yet-fetched file
+    file_requested_at TEXT,               -- set when a family member asks for a not-yet-fetched file
+    embedding TEXT                        -- JSON float array over title/category, per Search.md; see lib/core/search
 );
 
 -- ── Photo ────────────────────────────────────────────────────────────
@@ -149,7 +152,8 @@ CREATE TABLE photos (
     sync_status TEXT NOT NULL DEFAULT 'local' CHECK (sync_status IN ('local', 'metadata_only', 'fetched')),
     removed_from_source_at TEXT,
     file_requested_at TEXT,
-    thumbnail TEXT                        -- small base64 data URI, sent with metadata at sync time
+    thumbnail TEXT,                       -- small base64 data URI, sent with metadata at sync time
+    embedding TEXT                        -- JSON float array over tags/location, per Search.md; see lib/core/search
 );
 
 -- ── Memory ───────────────────────────────────────────────────────────
@@ -187,7 +191,8 @@ CREATE TABLE family_knowledge_items (
     is_sensitive INTEGER NOT NULL DEFAULT 0,
     folder_id TEXT REFERENCES folders(id),
     created_by TEXT NOT NULL REFERENCES users(id),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    embedding TEXT                       -- JSON float array, per Search.md; see lib/core/search
 );
 
 -- ── Password Entry ───────────────────────────────────────────────────
@@ -204,7 +209,8 @@ CREATE TABLE password_entries (
     folder_id TEXT REFERENCES folders(id),
     is_sensitive INTEGER NOT NULL DEFAULT 1,
     created_by TEXT NOT NULL REFERENCES users(id),
-    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    embedding TEXT                       -- JSON float array over service_name/notes/url only — the password itself is never embedded
 );
 
 -- ── Assistant Conversations ──────────────────────────────────────────
@@ -227,13 +233,23 @@ CREATE TABLE messages (
 
 -- ── Email Account (Standing Integration Connection) ─────────────────
 -- See Email.md, Security_Architecture.md. No raw email content stored.
+-- IMAP connection fields (imap_host/imap_port/imap_username/encrypted_password)
+-- aren't in Email.md's own Data Stored table — added here because fetching a
+-- live summary on demand genuinely requires reconnecting each time, not
+-- because a raw email content record is being kept. The password is
+-- encrypted the same way Password Entries are (lib/crypto/secret-box), under
+-- its own "email" context.
 CREATE TABLE email_accounts (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     provider TEXT NOT NULL,
     email_address TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'connected' CHECK (status IN ('connected', 'revoked')),
-    connected_at TEXT NOT NULL DEFAULT (datetime('now'))
+    connected_at TEXT NOT NULL DEFAULT (datetime('now')),
+    imap_host TEXT,
+    imap_port INTEGER,
+    imap_username TEXT,
+    encrypted_password TEXT
 );
 
 -- ── AI Memory ────────────────────────────────────────────────────────
@@ -278,14 +294,46 @@ CREATE TABLE ai_suggestions (
 -- ── Notification ─────────────────────────────────────────────────────
 -- See Notifications.md. MVP: real-time delivery, app enforces "last 10, hard
 -- delete beyond that" — not expressed as a schema constraint here.
+-- related_event_id/related_task_id back Notifications.md's tap-routing rule
+-- ("tapping a reminder routes to the relevant Event/Task") — same pattern as
+-- the existing related_suggestion_id, not a generic polymorphic reference.
 CREATE TABLE notifications (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
     text TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     related_suggestion_id TEXT REFERENCES ai_suggestions(id),
+    related_event_id TEXT REFERENCES events(id),
+    related_task_id TEXT REFERENCES tasks(id),
     liked INTEGER,
     severity TEXT NOT NULL DEFAULT 'routine' CHECK (severity IN ('routine', 'urgent'))
+);
+
+-- ── Push Subscription ────────────────────────────────────────────────
+-- See Notifications.md's "Android push for MVP" — one row per browser/device
+-- push registration (a user could have more than one, e.g. phone + desktop
+-- Chrome). Not part of Data_Model.md's original entity list — added here as
+-- the storage this feature genuinely needs, not a new "family data" concept.
+CREATE TABLE push_subscriptions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    endpoint TEXT NOT NULL UNIQUE,
+    p256dh TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Search vector index ──────────────────────────────────────────────
+-- See Search.md, Decision_Log.md #005 (sqlite-vec chosen over ChromaDB).
+-- One shared vec0 virtual table across all four searchable content types
+-- (Document/Photo/Family_Knowledge_Item/Password_Entry) rather than one per
+-- type — vec0 takes a single primary key column, and a household's total
+-- content volume is small enough that scanning one combined index costs
+-- nothing extra. content_key is "<type>:<id>" (see lib/core/search);
+-- embedding dimension (768) matches the local nomic-embed-text model.
+CREATE VIRTUAL TABLE vec_content USING vec0(
+    content_key TEXT PRIMARY KEY,
+    embedding FLOAT[768]
 );
 
 -- ── Security Event ───────────────────────────────────────────────────
@@ -318,3 +366,4 @@ CREATE INDEX idx_security_events_user_id ON security_events(user_id);
 CREATE INDEX idx_security_events_created_at ON security_events(created_at);
 CREATE INDEX idx_documents_source_device_id ON documents(source_device_id);
 CREATE INDEX idx_photos_source_device_id ON photos(source_device_id);
+CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id);

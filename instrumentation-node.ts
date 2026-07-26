@@ -11,11 +11,18 @@ import { runGuardianCheck } from "./lib/core/ai/guardian";
 import { runAdvisorDetectors, expireStaleSuggestions } from "./lib/core/ai/advisor";
 import { purgeOldSecurityEvents } from "./lib/core/logging";
 import { runBackup, getLastBackup } from "./lib/core/backup";
+import { checkAndFireReminders } from "./lib/core/notifications/reminders";
 
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // hourly
 const GUARDIAN_INTERVAL_HOURS = 24; // Guardian.md: "MVP: runs once per day"
 const ADVISOR_INTERVAL_HOURS = 24 * 7; // Advisor.md: "a weekly check"
 const BACKUP_INTERVAL_HOURS = 24; // Backup.md: "automatic daily backup"
+
+// Reminders get their own, much shorter interval than the hourly tick above —
+// Calendar.md/Tasks.md call these "real-time reminders," and the shortest
+// lead-time option (15 minutes before) would be routinely missed or fired
+// nearly an hour late if it only ran on the same cadence as Guardian/Advisor.
+const REMINDER_CHECK_INTERVAL_MS = 5 * 60 * 1000; // every 5 minutes
 
 async function tick() {
   try {
@@ -58,7 +65,18 @@ async function tick() {
   }
 }
 
+async function reminderTick() {
+  try {
+    await checkAndFireReminders();
+  } catch (err) {
+    console.error("[scheduler] Reminder check failed:", err);
+  }
+}
+
 export function startScheduler() {
   tick();
   setInterval(tick, CHECK_INTERVAL_MS);
+
+  reminderTick();
+  setInterval(reminderTick, REMINDER_CHECK_INTERVAL_MS);
 }

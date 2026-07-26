@@ -9,6 +9,7 @@ import { getDb } from "@/db/client";
 
 export type LogEventType =
   | "login"
+  | "logout"
   | "login_failed"
   | "password_reset"
   | "device_added"

@@ -172,7 +172,7 @@ function MyProfileTab({
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -181,7 +181,7 @@ function MyProfileTab({
               type="text"
               value={contactInfo}
               onChange={(e) => setContactInfo(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div>
@@ -190,7 +190,7 @@ function MyProfileTab({
               type="text"
               value={hobbies}
               onChange={(e) => setHobbies(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
         </div>
@@ -338,7 +338,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
             placeholder="e.g. Grandma Tikas"
             value={fullName}
             onChange={(e) => setFullName(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
         </div>
         <div className="flex gap-3">
@@ -349,7 +349,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
               placeholder="e.g. Grandmother"
               value={relationship}
               onChange={(e) => setRelationship(e.target.value)}
-              className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
           <div className="flex-1">
@@ -358,7 +358,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
               type="date"
               value={dateOfBirth}
               onChange={(e) => setDateOfBirth(e.target.value)}
-              className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
             />
           </div>
         </div>
@@ -369,7 +369,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
             placeholder="e.g. grandma.tikas"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
         </div>
         <div>
@@ -379,7 +379,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
             placeholder="Temporary password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
           />
         </div>
         <div>
@@ -387,7 +387,7 @@ function AddUserTab({ onCreated }: { onCreated: () => void }) {
           <select
             value={role}
             onChange={(e) => setRole(e.target.value as NewUserInput["role"])}
-            className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+            className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-body text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
           >
             <option value="basic_user">Basic User</option>
             <option value="admin">Admin</option>

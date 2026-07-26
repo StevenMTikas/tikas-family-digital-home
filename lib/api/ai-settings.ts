@@ -79,3 +79,14 @@ export async function giveSuggestionFeedback(
     })
   );
 }
+
+/** AI_Suggestions.md's Accept action — records that the user was routed to act; it never finalizes the action itself. */
+export async function acceptSuggestion(id: string): Promise<void> {
+  await unwrap(
+    await fetch(`/api/ai-suggestions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accepted: true }),
+    })
+  );
+}

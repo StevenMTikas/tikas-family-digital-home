@@ -169,10 +169,20 @@ export default function AiSettingsPageClient({
                   </div>
                   {!s.expired && s.feedback === "none" && !s.acceptedAt && (
                     <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => handleFeedback(s.id, "thumbs_up")} className="text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleFeedback(s.id, "thumbs_up")}
+                        aria-label="Helpful suggestion"
+                        className="text-xs"
+                      >
                         👍
                       </button>
-                      <button type="button" onClick={() => handleFeedback(s.id, "thumbs_down")} className="text-xs">
+                      <button
+                        type="button"
+                        onClick={() => handleFeedback(s.id, "thumbs_down")}
+                        aria-label="Not a helpful suggestion"
+                        className="text-xs"
+                      >
                         👎
                       </button>
                       <button type="button" onClick={() => handleFeedback(s.id, "dismissed")} className="text-[11px] text-ink-muted">

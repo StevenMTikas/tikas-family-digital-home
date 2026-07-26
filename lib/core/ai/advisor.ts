@@ -10,6 +10,7 @@ import { ollamaChat } from "./ollama";
 import { getModelForRole, logAiInteraction } from "./index";
 import { getBaseLayerPrompt } from "./base-layer";
 import { ADVISOR_ROLE_PROMPT } from "./roles";
+import { createNotification } from "@/lib/core/notifications";
 
 export type AdvisorModule = "calendar" | "tasks" | "documents";
 
@@ -114,10 +115,15 @@ export async function runAdvisorDetectors(triggerType: "event" | "weekly_check")
   let created = 0;
   for (const finding of findings) {
     const content = await phraseFinding(finding);
+    const suggestionId = randomUUID();
     db.prepare(
       `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, display_context, relevancy_score, content, related_entity_id)
        VALUES (?, ?, ?, ?, 'dashboard', ?, ?, ?)`
-    ).run(randomUUID(), finding.userId, finding.module, triggerType, finding.relevancyScore, content, finding.relatedEntityId);
+    ).run(suggestionId, finding.userId, finding.module, triggerType, finding.relevancyScore, content, finding.relatedEntityId);
+
+    // Notifications.md: "Advisor suggestions... all flow through this same
+    // general Notification system" — not just the Suggestion History/Dashboard list.
+    await createNotification({ userId: finding.userId, text: content, relatedSuggestionId: suggestionId });
     created += 1;
   }
 

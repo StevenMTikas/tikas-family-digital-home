@@ -4,3 +4,39 @@
 
 /* Design tokens live in tailwind.config.ts, sourced from
    docs/03_User_Experience/Design_Language.md. Don't hardcode colors here. */
+
+/* Accessibility.md: "Visible focus indicators. Every interactive element
+   shows a clear focus state when navigated via keyboard, not just on
+   hover/tap." Text inputs already carry their own explicit
+   focus:ring-2/focus:ring-accent classes; buttons and links across the app
+   were relying on the browser's unstyled default outline (functionally
+   compliant, but inconsistent and off-brand) — this gives every button/link
+   one consistent, on-brand focus ring app-wide without editing every
+   component individually. :focus-visible (not :focus) so it only shows for
+   keyboard navigation, not every mouse click. */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid theme("colors.accent-strong");
+  outline-offset: 2px;
+}
+
+/* Design_Language.md's one signature motion moment: "the Morning Briefing's
+   content gently settling into place on open — a single, calm arrival, not
+   a page full of independently animated elements." Applied once, to the
+   Dashboard's whole content block (see app/dashboard/DashboardPageClient.tsx)
+   — deliberately not per-card/staggered, per that same guidance. */
+@keyframes settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-settle-in {
+  animation: settle-in 220ms ease-out;
+}
