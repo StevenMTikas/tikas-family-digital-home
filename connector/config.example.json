@@ -1,0 +1,11 @@
+{
+  "hostUrl": "http://localhost:3000",
+  "deviceId": "paste-the-device-id-from-the-devices-admin-screen",
+  "deviceToken": "paste-the-token-shown-once-at-pairing-time",
+  "designatedFolders": {
+    "camera_photos": "C:\\Users\\YourName\\Pictures\\Camera Roll",
+    "documents": "C:\\Users\\YourName\\Downloads"
+  },
+  "syncIntervalHours": 24,
+  "pendingPollIntervalMinutes": 5
+}

@@ -19,6 +19,9 @@ import type {
   PermissionHolder,
   StandingConnection,
   OutsideCallActivity,
+  DeviceInfo,
+  DeviceWithToken,
+  FolderType,
 } from "@/lib/api/admin";
 
 export interface OverviewData {
@@ -33,11 +36,12 @@ export interface FamilyMemberOption {
   fullName: string;
 }
 
-type Tab = "overview" | "monitoring" | "folders" | "logs" | "backup" | "internet";
+type Tab = "overview" | "monitoring" | "folders" | "logs" | "backup" | "internet" | "devices";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
   { id: "monitoring", label: "Monitoring" },
+  { id: "devices", label: "Devices" },
   { id: "folders", label: "Folder Permissions" },
   { id: "logs", label: "Logs" },
   { id: "backup", label: "Backup" },
@@ -91,6 +95,7 @@ export default function AdministrationPageClient({
       <div className="mt-7">
         {tab === "overview" && <OverviewTab initial={initialOverview} onViewShortcut={setTab} />}
         {tab === "monitoring" && <MonitoringTab />}
+        {tab === "devices" && <DevicesTab familyMembers={familyMembers} />}
         {tab === "folders" && <FolderPermissionsTab familyMembers={familyMembers} />}
         {tab === "logs" && <LogsTab familyMembers={familyMembers} />}
         {tab === "backup" && <BackupTab />}
@@ -237,6 +242,257 @@ function MonitoringTab() {
         check once daily.
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{healthCards(data.health)}</div>
+    </div>
+  );
+}
+
+// ── Devices ─────────────────────────────────────────────────────────
+
+const FOLDER_TYPE_LABELS: Record<FolderType, string> = {
+  camera_photos: "Camera / Photos",
+  documents: "Downloaded Documents",
+};
+
+function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss: () => void }) {
+  return (
+    <div className="bg-trust/10 border border-trust/30 rounded-2xl p-5 mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <div className="text-xs font-semibold text-trust uppercase tracking-wide">
+          Pairing token for {device.deviceName} — shown once
+        </div>
+        <button type="button" onClick={onDismiss} className="text-[11px] text-ink-muted">
+          Dismiss
+        </button>
+      </div>
+      <p className="text-[12.5px] text-ink mb-3">
+        Copy this device id and token into the connector script&apos;s config on {device.deviceName}. It won&apos;t
+        be shown again — use &quot;Regenerate Token&quot; below if it&apos;s lost.
+      </p>
+      <div className="font-mono text-[12px] bg-surface rounded-[10px] p-3 break-all">
+        <div>
+          <span className="text-ink-muted">DEVICE_ID=</span>
+          {device.id}
+        </div>
+        <div>
+          <span className="text-ink-muted">DEVICE_TOKEN=</span>
+          {device.authToken}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) {
+  const [devices, setDevices] = useState<DeviceInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revealedToken, setRevealedToken] = useState<DeviceWithToken | null>(null);
+
+  const [userId, setUserId] = useState("");
+  const [deviceType, setDeviceType] = useState<"computer" | "phone">("computer");
+  const [deviceName, setDeviceName] = useState("");
+  const [folders, setFolders] = useState<FolderType[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    adminApi.fetchDevices().then(setDevices).catch((err) => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function toggleFolder(f: FolderType) {
+    setFolders((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
+  }
+
+  async function handleAdd() {
+    if (!userId || !deviceName.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await adminApi.addDevice({
+        userId,
+        deviceType,
+        deviceName: deviceName.trim(),
+        designatedFolders: deviceType === "computer" ? folders : [],
+      });
+      if ("authToken" in result) setRevealedToken(result);
+      setDeviceName("");
+      setFolders([]);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not add device.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRevoke(id: string) {
+    await adminApi.revokeDevice(id);
+    load();
+  }
+
+  async function handleToggleDeviceFolder(device: DeviceInfo, f: FolderType) {
+    const next = device.designatedFolders.includes(f)
+      ? device.designatedFolders.filter((x) => x !== f)
+      : [...device.designatedFolders, f];
+    const result = await adminApi.updateDeviceFolders(device.id, next);
+    if ("authToken" in result) setRevealedToken(result);
+    load();
+  }
+
+  async function handleRegenerateToken(id: string) {
+    const result = await adminApi.regenerateDeviceToken(id);
+    setRevealedToken(result);
+    load();
+  }
+
+  const nameById = new Map(familyMembers.map((m) => [m.id, m.fullName]));
+
+  return (
+    <div>
+      {revealedToken && <TokenReveal device={revealedToken} onDismiss={() => setRevealedToken(null)} />}
+
+      <div className="bg-surface rounded-2xl p-6 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mb-6 max-w-[560px]">
+        <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-4">Add Device</div>
+        <div className="flex flex-col gap-3.5">
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-ink mb-1.5">Family Member</label>
+              <select
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
+                className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+              >
+                <option value="">Select…</option>
+                {familyMembers.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-ink mb-1.5">Type</label>
+              <select
+                value={deviceType}
+                onChange={(e) => setDeviceType(e.target.value as "computer" | "phone")}
+                className="w-full px-3 py-2 rounded-[10px] border border-ink/15 text-[13px] text-ink"
+              >
+                <option value="computer">Computer</option>
+                <option value="phone">Phone</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-ink mb-1.5">Device Name</label>
+            <input
+              type="text"
+              placeholder="e.g. Vee's Laptop"
+              value={deviceName}
+              onChange={(e) => setDeviceName(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-[10px] border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70"
+            />
+          </div>
+
+          {deviceType === "computer" ? (
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1.5">
+                Connector — designated folders (optional)
+              </label>
+              <div className="flex gap-4">
+                {(Object.keys(FOLDER_TYPE_LABELS) as FolderType[]).map((f) => (
+                  <label key={f} className="flex items-center gap-1.5 text-[12.5px] text-ink">
+                    <input type="checkbox" checked={folders.includes(f)} onChange={() => toggleFolder(f)} />
+                    {FOLDER_TYPE_LABELS[f]}
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-ink-muted mt-1">
+                Leave both unchecked to trust this device for login only, with no connector.
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11.5px] text-ink-muted">
+              Phone connectors aren&apos;t supported yet — this pairs the phone for login trust only. See
+              File_Connector_Architecture.md.
+            </p>
+          )}
+        </div>
+
+        {error && <p className="text-[12px] text-urgent mt-3">{error}</p>}
+
+        <button
+          type="button"
+          onClick={handleAdd}
+          disabled={saving || !userId || !deviceName.trim()}
+          className="mt-4 text-[13px] font-semibold text-white bg-accent-strong px-5 py-2.5 rounded-full disabled:opacity-50"
+        >
+          {saving ? "Adding…" : "Add Device"}
+        </button>
+      </div>
+
+      <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-3">All Devices</div>
+      {!devices && <p className="text-[13px] text-ink-muted">Loading…</p>}
+      {devices && devices.length === 0 && <p className="text-[13px] text-ink-muted">No devices yet.</p>}
+      {devices && devices.length > 0 && (
+        <div className="bg-surface rounded-2xl px-5 shadow-[0_8px_20px_rgba(58,52,44,0.05)]">
+          {devices.map((d, i) => (
+            <div key={d.id} className={`py-3.5 ${i > 0 ? "border-t border-ink/[0.07]" : ""}`}>
+              <div className="flex items-center gap-4">
+                <div className="flex-1">
+                  <div className="text-[13.5px] text-ink">
+                    {d.deviceName} <span className="text-ink-muted">· {nameById.get(d.userId) ?? d.userName}</span>
+                  </div>
+                  <div className="text-[11.5px] text-ink-muted mt-0.5">
+                    {d.deviceType === "computer" ? "Computer" : "Phone"} ·{" "}
+                    {d.connectorEnabled
+                      ? `Syncing: ${d.designatedFolders.map((f) => FOLDER_TYPE_LABELS[f]).join(", ")}`
+                      : "No connector"}{" "}
+                    · Last sync: {formatTimestamp(d.lastSyncAt)}
+                  </div>
+                </div>
+                <div
+                  className={`text-[11px] px-3 py-1 rounded-full ${
+                    d.status === "trusted" ? "text-calm bg-calm/[0.14]" : "text-urgent bg-urgent/[0.14]"
+                  }`}
+                >
+                  {d.status === "trusted" ? "Trusted" : "Revoked"}
+                </div>
+                {d.status === "trusted" && (
+                  <button
+                    type="button"
+                    onClick={() => handleRevoke(d.id)}
+                    className="text-[11.5px] font-semibold text-urgent border border-urgent/30 rounded-full px-3 py-1"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+
+              {d.status === "trusted" && d.deviceType === "computer" && (
+                <div className="flex items-center gap-4 mt-2 pl-0">
+                  {(Object.keys(FOLDER_TYPE_LABELS) as FolderType[]).map((f) => (
+                    <label key={f} className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+                      <input type="checkbox" checked={d.designatedFolders.includes(f)} onChange={() => handleToggleDeviceFolder(d, f)} />
+                      {FOLDER_TYPE_LABELS[f]}
+                    </label>
+                  ))}
+                  {d.connectorEnabled && (
+                    <button
+                      type="button"
+                      onClick={() => handleRegenerateToken(d.id)}
+                      className="text-[11.5px] font-semibold text-accent-strong ml-auto"
+                    >
+                      Regenerate Token
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

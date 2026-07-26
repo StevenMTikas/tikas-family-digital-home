@@ -25,6 +25,18 @@ export async function saveUploadedFile(kind: UploadKind, file: File): Promise<st
   return path.join(kind, filename);
 }
 
+/** Same as saveUploadedFile, for callers that already have raw bytes rather than a File object — e.g. a connector's on-demand file upload (lib/core/connectors). */
+export async function saveUploadedBuffer(kind: UploadKind, originalFilename: string, buffer: Buffer): Promise<string> {
+  const dir = path.join(UPLOADS_ROOT, kind);
+  await mkdir(dir, { recursive: true });
+
+  const ext = path.extname(originalFilename);
+  const filename = `${randomUUID()}${ext}`;
+  await writeFile(path.join(dir, filename), buffer);
+
+  return path.join(kind, filename);
+}
+
 export async function readUploadedFile(relativePath: string): Promise<Buffer> {
   return readFile(path.join(UPLOADS_ROOT, relativePath));
 }

@@ -38,7 +38,10 @@ CREATE TABLE users (
 );
 
 -- ── Device ───────────────────────────────────────────────────────────
--- See Security_Architecture.md (device trust model)
+-- See Security_Architecture.md (device trust model), File_Connector_Architecture.md
+-- (connector pairing). auth_token/designated_folders are only set once an
+-- admin actually enables a connector for this device (Phase 5) — a device
+-- trusted only for login (Phase 1) leaves both NULL.
 CREATE TABLE devices (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id),
@@ -46,6 +49,8 @@ CREATE TABLE devices (
     device_name TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'trusted' CHECK (status IN ('trusted', 'revoked')),
     added_by TEXT NOT NULL REFERENCES users(id),
+    auth_token TEXT,                      -- connector's credential; shown once at pairing time
+    designated_folders TEXT,              -- JSON array of folder-type strings, e.g. ["camera_photos","documents"]
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_sync_at TEXT
 );
@@ -98,20 +103,36 @@ CREATE TABLE tasks (
 );
 
 -- ── Document ─────────────────────────────────────────────────────────
--- See Documents.md. No versioning for MVP.
+-- See Documents.md. No versioning for MVP. Connector-sourced fields (Phase 5,
+-- File_Connector_Architecture.md): a connector-synced document arrives as
+-- metadata only — `file` is '' and sync_status is 'metadata_only' until a
+-- family member requests it and the source device's connector uploads the
+-- actual bytes on its next check-in. removed_from_source_at is set (not
+-- deleted) if a later sync no longer sees the file on the device, since it
+-- may still be referenced by a Memory elsewhere in the system.
 CREATE TABLE documents (
     id TEXT PRIMARY KEY,
-    file TEXT NOT NULL,                   -- storage path/reference
+    file TEXT NOT NULL,                   -- storage path/reference; '' until fetched
     title TEXT NOT NULL,
     folder_id TEXT REFERENCES folders(id),
     category TEXT,
     is_sensitive INTEGER NOT NULL DEFAULT 0,
     uploaded_by TEXT NOT NULL REFERENCES users(id),
-    uploaded_at TEXT NOT NULL DEFAULT (datetime('now'))
+    uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    source_device_id TEXT REFERENCES devices(id),
+    source_path TEXT,                     -- original path on the source device
+    source_modified_at TEXT,              -- the device's last-reported mtime; distinguishes a real edit from an unchanged re-sync
+    sync_status TEXT NOT NULL DEFAULT 'local' CHECK (sync_status IN ('local', 'metadata_only', 'fetched')),
+    removed_from_source_at TEXT,
+    file_requested_at TEXT                -- set when a family member asks for a not-yet-fetched file
 );
 
 -- ── Photo ────────────────────────────────────────────────────────────
--- See Photos.md. No dedup for MVP.
+-- See Photos.md. No dedup for MVP. See Document's comment above for the
+-- connector-sourced fields shared with Phase 5; `thumbnail` additionally
+-- lets a metadata-only photo still render something before the full file
+-- is fetched (File_Connector_Architecture.md: "a thumbnail" is part of
+-- what syncs on every check-in, unlike the full file).
 CREATE TABLE photos (
     id TEXT PRIMARY KEY,
     file TEXT NOT NULL,
@@ -121,7 +142,14 @@ CREATE TABLE photos (
     tags TEXT,                            -- JSON array
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
     is_sensitive INTEGER NOT NULL DEFAULT 0,
-    event_link TEXT REFERENCES events(id)
+    event_link TEXT REFERENCES events(id),
+    source_device_id TEXT REFERENCES devices(id),
+    source_path TEXT,
+    source_modified_at TEXT,              -- see Document's comment above
+    sync_status TEXT NOT NULL DEFAULT 'local' CHECK (sync_status IN ('local', 'metadata_only', 'fetched')),
+    removed_from_source_at TEXT,
+    file_requested_at TEXT,
+    thumbnail TEXT                        -- small base64 data URI, sent with metadata at sync time
 );
 
 -- ── Memory ───────────────────────────────────────────────────────────
@@ -288,3 +316,5 @@ CREATE INDEX idx_ai_suggestions_user_id ON ai_suggestions(user_id);
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_security_events_user_id ON security_events(user_id);
 CREATE INDEX idx_security_events_created_at ON security_events(created_at);
+CREATE INDEX idx_documents_source_device_id ON documents(source_device_id);
+CREATE INDEX idx_photos_source_device_id ON photos(source_device_id);

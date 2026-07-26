@@ -7,13 +7,18 @@
 //
 // Forwards the verified user id as `x-user-id` so pages/routes don't have to
 // re-parse the cookie themselves.
+//
+// api/connectors is also excluded: connectors (File_Connector_Architecture.md)
+// aren't a logged-in family member and carry no session cookie — they
+// authenticate with their own device id + auth_token instead, checked inside
+// each connector route via lib/core/connectors.
 
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionCookieValue } from "@/lib/core/session";
 
 export const config = {
   runtime: "nodejs",
-  matcher: ["/((?!api/auth/login|_next/static|_next/image|favicon.ico|login).*)"],
+  matcher: ["/((?!api/auth/login|api/connectors|_next/static|_next/image|favicon.ico|login).*)"],
 };
 
 export function middleware(req: NextRequest) {

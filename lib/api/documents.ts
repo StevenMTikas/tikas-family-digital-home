@@ -10,6 +10,9 @@ export interface DocumentItem {
   uploadedBy: string;
   uploadedAt: string;
   canDelete: boolean;
+  syncStatus: "local" | "metadata_only" | "fetched";
+  fileRequestedAt: string | null;
+  removedFromSourceAt: string | null;
 }
 
 export class DocumentsApiError extends Error {}
@@ -58,4 +61,9 @@ export async function deleteDocument(id: string): Promise<void> {
 
 export function documentDownloadUrl(id: string): string {
   return `/api/documents/${id}/download`;
+}
+
+/** Asks a connector-sourced document's source device to upload the file — see File_Connector_Architecture.md. */
+export async function requestDocumentFile(id: string): Promise<void> {
+  await unwrap(await fetch(`/api/documents/${id}/request-file`, { method: "POST" }));
 }

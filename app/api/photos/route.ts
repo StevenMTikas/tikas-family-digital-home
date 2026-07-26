@@ -22,6 +22,10 @@ interface PhotoRow {
   visibility: "public" | "private";
   is_sensitive: number;
   event_link: string | null;
+  sync_status: "local" | "metadata_only" | "fetched";
+  file_requested_at: string | null;
+  removed_from_source_at: string | null;
+  thumbnail: string | null;
 }
 
 function toPhotoResponse(row: PhotoRow, actor: AuthUser) {
@@ -38,6 +42,13 @@ function toPhotoResponse(row: PhotoRow, actor: AuthUser) {
     // Delete requires the delete_content permission specifically (Photos.md)
     // — not the same gate as visibility, which any uploader/admin can change.
     canDelete: hasPermission(actor, "deleteContent"),
+    // Connector-sourced state (File_Connector_Architecture.md) — 'local' for
+    // everything uploaded directly, which is most photos. `thumbnail` lets a
+    // metadata_only photo render something before the full file is fetched.
+    syncStatus: row.sync_status,
+    fileRequestedAt: row.file_requested_at,
+    removedFromSourceAt: row.removed_from_source_at,
+    thumbnail: row.thumbnail,
   };
 }
 

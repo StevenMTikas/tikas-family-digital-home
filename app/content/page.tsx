@@ -38,6 +38,9 @@ export default async function ContentPage() {
     is_sensitive: number;
     uploaded_by: string;
     uploaded_at: string;
+    sync_status: "local" | "metadata_only" | "fetched";
+    file_requested_at: string | null;
+    removed_from_source_at: string | null;
   }[];
   const documents: DocumentData[] = [];
   for (const row of documentRows) {
@@ -51,6 +54,9 @@ export default async function ContentPage() {
       uploadedBy: row.uploaded_by,
       uploadedAt: row.uploaded_at,
       canDelete: await canAccessFolder(ctx, row.folder_id, "delete"),
+      syncStatus: row.sync_status,
+      fileRequestedAt: row.file_requested_at,
+      removedFromSourceAt: row.removed_from_source_at,
     });
   }
 
@@ -64,6 +70,10 @@ export default async function ContentPage() {
     visibility: "public" | "private";
     is_sensitive: number;
     event_link: string | null;
+    sync_status: "local" | "metadata_only" | "fetched";
+    file_requested_at: string | null;
+    removed_from_source_at: string | null;
+    thumbnail: string | null;
   }[];
   const photos: PhotoData[] = photoRows
     .filter((row) => row.visibility === "public" || canManageUser(actor, row.uploaded_by))
@@ -78,6 +88,10 @@ export default async function ContentPage() {
       eventLink: row.event_link,
       canEditVisibility: canManageUser(actor, row.uploaded_by),
       canDelete: hasPermission(actor, "deleteContent"),
+      syncStatus: row.sync_status,
+      fileRequestedAt: row.file_requested_at,
+      removedFromSourceAt: row.removed_from_source_at,
+      thumbnail: row.thumbnail,
     }));
 
   // --- Memory ---

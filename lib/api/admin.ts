@@ -170,3 +170,70 @@ export async function revokeUserPermission(
 export async function revokeConnection(connectionId: string): Promise<void> {
   await unwrap(await fetch(`/api/admin/internet-access/connections/${connectionId}`, { method: "PATCH" }));
 }
+
+// ── Devices ─────────────────────────────────────────────────────────
+export type FolderType = "camera_photos" | "documents";
+export interface DeviceInfo {
+  id: string;
+  userId: string;
+  userName: string;
+  deviceType: "computer" | "phone";
+  deviceName: string;
+  status: "trusted" | "revoked";
+  connectorEnabled: boolean;
+  designatedFolders: FolderType[];
+  lastSyncAt: string | null;
+  addedAt: string;
+}
+export interface DeviceWithToken extends DeviceInfo {
+  authToken: string;
+}
+
+export async function fetchDevices(): Promise<DeviceInfo[]> {
+  return unwrap(await fetch("/api/admin/devices"));
+}
+
+export async function addDevice(input: {
+  userId: string;
+  deviceType: "computer" | "phone";
+  deviceName: string;
+  designatedFolders: FolderType[];
+}): Promise<DeviceInfo | DeviceWithToken> {
+  return unwrap(
+    await fetch("/api/admin/devices", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+  );
+}
+
+export async function revokeDevice(id: string): Promise<DeviceInfo> {
+  return unwrap(
+    await fetch(`/api/admin/devices/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "revoked" }),
+    })
+  );
+}
+
+export async function updateDeviceFolders(id: string, designatedFolders: FolderType[]): Promise<DeviceInfo | DeviceWithToken> {
+  return unwrap(
+    await fetch(`/api/admin/devices/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ designatedFolders }),
+    })
+  );
+}
+
+export async function regenerateDeviceToken(id: string): Promise<DeviceWithToken> {
+  return unwrap(
+    await fetch(`/api/admin/devices/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ regenerateToken: true }),
+    })
+  ) as Promise<DeviceWithToken>;
+}

@@ -4,6 +4,7 @@ out/
 build/
 /uploads/
 /backups/
+connector/config.json
 *.db
 *.db-journal
 *.db-shm

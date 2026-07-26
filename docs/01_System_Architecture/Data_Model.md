@@ -49,6 +49,8 @@ Represents a trusted computer or phone running a connector.
 | device_name | |
 | status | trusted / revoked |
 | added_by | admin who added it |
+| auth_token | connector's credential, generated and shown once when an admin enables sync for this device; NULL for a device trusted only for login (see File_Connector_Architecture.md, Security_Architecture.md) |
+| designated_folders | list of folder-type strings (`camera_photos`, `documents`) the connector scans on this device — decided per-device, not uniform across all devices, so e.g. Vee's phone can sync Camera Roll + Downloads while Malachi's computer only syncs a school-documents folder (see File_Connector_Architecture.md's Questions) |
 | added_at | |
 | last_sync_at | connectors sync once/day for MVP; see System_Overview.md |
 
@@ -100,6 +102,12 @@ Join table — an event can be assigned to multiple family members.
 | is_sensitive | boolean — flags content requiring the extra sensitive-data outside-transmission gate (see AI_Permissions.md); unavailable to minors regardless of other permissions |
 | uploaded_by | |
 | uploaded_at | |
+| source_device_id | set when this document arrived via a connector sync rather than a direct upload; NULL otherwise (see File_Connector_Architecture.md) |
+| source_path | the file's original path on the source device — needed to request the actual bytes later |
+| source_modified_at | the device's last-reported modification time for this file — compared on each sync to tell a genuine edit (invalidates an already-fetched copy) apart from the same unchanged file being reported again |
+| sync_status | `local` (uploaded directly) / `metadata_only` (connector reported it, file not yet pulled) / `fetched` (connector-sourced and the file is now on the host) |
+| removed_from_source_at | set, not deleted, if a later sync no longer finds the file on the device — keeps the record in case a Memory or elsewhere still references it (resolves File_Connector_Architecture.md's open Question on this) |
+| file_requested_at | set when a family member opens/downloads a `metadata_only` document, so the source device's connector knows to upload it on its next check-in |
 
 *No versioning in MVP — each document is the current file only. Versioning is a commercial-app requirement, not MVP. See Future Enhancements.*
 
@@ -129,6 +137,8 @@ Represents a permission boundary for documents (and potentially other content ty
 | visibility | public (default) / private — same model as Event/Task visibility (see Photos.md, Calendar.md, Tasks.md) |
 | is_sensitive | boolean — same flag/behavior as Document and Family_Knowledge_Item (see AI_Permissions.md, Photos.md) |
 | event_link | optional link to a related Event, populated from the AI's "what event is this from?" prompt (see Photos.md) |
+| source_device_id, source_path, source_modified_at, sync_status, removed_from_source_at, file_requested_at | same meaning as Document's connector-sourced fields above (see File_Connector_Architecture.md) |
+| thumbnail | small preview image sent with metadata at sync time, so a `metadata_only` photo still renders something before the full file is fetched |
 
 The AI can prompt the uploader to help categorize a new photo at upload time — e.g., *"Who is in this picture?" / "Where was it taken?" / "What event is this from?"* — populating tags/location/event linkage. These tags are what later power searches like "show me all church outreach pictures" or "find every photo with Malachi."
 

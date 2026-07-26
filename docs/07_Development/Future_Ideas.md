@@ -54,6 +54,7 @@ Organized by area, for reference — see the linked document for full context on
 - Manual "sync now" option for connectors (`File_Connector_Architecture.md`)
 - Duplicate detection and auto-renaming for near-identical synced files (`File_Connector_Architecture.md`)
 - Expansion of designated connector folder types beyond camera/photos and documents (`File_Connector_Architecture.md`)
+- Real phone connector support — a native or cross-platform mobile app, since phones (especially iOS) can't run the MVP's script-based connector model. MVP as built only supports computer connectors (`File_Connector_Architecture.md`)
 
 ### Data & Documents
 - Document versioning (`Data_Model.md`)

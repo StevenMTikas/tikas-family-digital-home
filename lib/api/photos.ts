@@ -12,6 +12,10 @@ export interface PhotoItem {
   eventLink: string | null;
   canEditVisibility: boolean;
   canDelete: boolean;
+  syncStatus: "local" | "metadata_only" | "fetched";
+  fileRequestedAt: string | null;
+  removedFromSourceAt: string | null;
+  thumbnail: string | null;
 }
 
 export class PhotosApiError extends Error {}
@@ -62,4 +66,9 @@ export async function deletePhoto(id: string): Promise<void> {
 
 export function photoFileUrl(id: string): string {
   return `/api/photos/${id}/file`;
+}
+
+/** Asks a connector-sourced photo's source device to upload the file — see File_Connector_Architecture.md. */
+export async function requestPhotoFile(id: string): Promise<void> {
+  await unwrap(await fetch(`/api/photos/${id}/request-file`, { method: "POST" }));
 }

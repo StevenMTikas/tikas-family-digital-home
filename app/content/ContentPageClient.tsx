@@ -19,10 +19,11 @@ import {
   setDocumentSensitivity,
   deleteDocument,
   documentDownloadUrl,
+  requestDocumentFile,
   DocumentsApiError,
   type DocumentItem,
 } from "@/lib/api/documents";
-import { uploadPhoto, deletePhoto, photoFileUrl, PhotosApiError, type PhotoItem } from "@/lib/api/photos";
+import { uploadPhoto, deletePhoto, photoFileUrl, requestPhotoFile, PhotosApiError, type PhotoItem } from "@/lib/api/photos";
 import { createMemory, deleteMemory, MemoryApiError, type MemoryItem } from "@/lib/api/memory";
 import {
   createFamilyKnowledgeItem,
@@ -153,6 +154,16 @@ function DocumentsTab({
     }
   }
 
+  async function handleRequestFile(doc: DocumentData) {
+    setError(null);
+    try {
+      await requestDocumentFile(doc.id);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof DocumentsApiError ? err.message : "Something went wrong.");
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -181,6 +192,7 @@ function DocumentsTab({
                 <div className="text-sm text-ink truncate">{doc.title}</div>
                 <div className="text-[11.5px] text-ink-muted mt-0.5">
                   {nameFor(familyMembers, doc.uploadedBy)} · {formatDate(doc.uploadedAt)}
+                  {doc.removedFromSourceAt && " · No longer on the source device"}
                 </div>
               </div>
               {doc.category && (
@@ -196,12 +208,28 @@ function DocumentsTab({
               >
                 {doc.isSensitive ? "Sensitive" : "Mark sensitive"}
               </button>
-              <a
-                href={documentDownloadUrl(doc.id)}
-                className="text-[12.5px] text-accent-strong font-semibold w-16 text-right"
-              >
-                Download
-              </a>
+              {doc.syncStatus === "metadata_only" ? (
+                doc.fileRequestedAt ? (
+                  <span className="text-[11.5px] text-ink-muted w-32 text-right" title="Will arrive when the source device's connector next checks in">
+                    Requested…
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleRequestFile(doc)}
+                    className="text-[12.5px] text-accent-strong font-semibold w-32 text-right"
+                  >
+                    Request File
+                  </button>
+                )
+              ) : (
+                <a
+                  href={documentDownloadUrl(doc.id)}
+                  className="text-[12.5px] text-accent-strong font-semibold w-16 text-right"
+                >
+                  Download
+                </a>
+              )}
               {doc.canDelete && (
                 <button type="button" onClick={() => handleDelete(doc)} className="text-[12.5px] text-urgent">
                   Delete
@@ -314,6 +342,16 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
     }
   }
 
+  async function handleRequestFile(photo: PhotoData) {
+    setError(null);
+    try {
+      await requestPhotoFile(photo.id);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof PhotosApiError ? err.message : "Something went wrong.");
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -337,16 +375,33 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
             <div key={photo.id} className="rounded-2xl overflow-hidden shadow-[0_8px_20px_rgba(58,52,44,0.05)] bg-surface">
               <div className="aspect-square bg-base relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoFileUrl(photo.id)} alt="" className="w-full h-full object-cover" />
+                <img
+                  src={photo.syncStatus === "metadata_only" ? photo.thumbnail ?? "" : photoFileUrl(photo.id)}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
                 {photo.visibility === "private" && (
                   <div className="absolute top-2 right-2 w-[22px] h-[22px] rounded-full bg-white/85 flex items-center justify-center text-[10px]">
                     🔒
+                  </div>
+                )}
+                {photo.syncStatus === "metadata_only" && (
+                  <div className="absolute inset-x-0 bottom-0 bg-ink/70 text-white text-[10.5px] px-2 py-1 flex items-center justify-between">
+                    <span>Not downloaded yet</span>
+                    {!photo.fileRequestedAt && (
+                      <button type="button" onClick={() => handleRequestFile(photo)} className="font-semibold underline">
+                        Request
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
               <div className="p-2.5">
                 <div className="text-xs text-ink">{photo.tags.join(", ") || "—"}</div>
                 {photo.location && <div className="text-[11px] text-ink-muted mt-0.5">{photo.location}</div>}
+                {photo.removedFromSourceAt && (
+                  <div className="text-[10.5px] text-ink-muted mt-0.5">No longer on the source device</div>
+                )}
                 {photo.canDelete && (
                   <button type="button" onClick={() => handleDelete(photo)} className="text-[11px] text-urgent mt-1.5">
                     Delete

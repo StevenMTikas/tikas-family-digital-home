@@ -23,6 +23,9 @@ interface DocumentRow {
   is_sensitive: number;
   uploaded_by: string;
   uploaded_at: string;
+  sync_status: "local" | "metadata_only" | "fetched";
+  file_requested_at: string | null;
+  removed_from_source_at: string | null;
 }
 
 function toDocResponse(row: DocumentRow, canDelete: boolean) {
@@ -35,6 +38,11 @@ function toDocResponse(row: DocumentRow, canDelete: boolean) {
     uploadedBy: row.uploaded_by,
     uploadedAt: row.uploaded_at,
     canDelete,
+    // Connector-sourced state (File_Connector_Architecture.md) — 'local' for
+    // everything uploaded directly, which is most documents.
+    syncStatus: row.sync_status,
+    fileRequestedAt: row.file_requested_at,
+    removedFromSourceAt: row.removed_from_source_at,
   };
 }
 

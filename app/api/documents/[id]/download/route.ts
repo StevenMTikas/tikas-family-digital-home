@@ -15,6 +15,7 @@ interface DocumentRow {
   file: string;
   title: string;
   folder_id: string | null;
+  sync_status: "local" | "metadata_only" | "fetched";
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -23,13 +24,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const actor = actorId ? await getAuthUser(actorId) : null;
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
-  const row = getDb().prepare(`SELECT id, file, title, folder_id FROM documents WHERE id = ?`).get(id) as
+  const row = getDb().prepare(`SELECT id, file, title, folder_id, sync_status FROM documents WHERE id = ?`).get(id) as
     | DocumentRow
     | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such document.", 404);
 
   if (!row.folder_id || !(await canAccessFolder({ userId: actor.id }, row.folder_id, "view"))) {
     return errorResponse("FORBIDDEN", "You don't have View access to this document's folder.", 403);
+  }
+
+  // Connector-sourced document whose bytes haven't arrived yet — see
+  // File_Connector_Architecture.md. The request-file route is what triggers
+  // the fetch; this route only ever streams bytes that already exist.
+  if (row.sync_status === "metadata_only") {
+    return errorResponse("NOT_FETCHED", "This file hasn't been pulled from the source device yet.", 409);
   }
 
   const buffer = await readUploadedFile(row.file);

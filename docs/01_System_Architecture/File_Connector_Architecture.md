@@ -42,14 +42,16 @@ Defines how connectors — the lightweight agents running on family members' com
 
 ## Setup & Pairing
 
-- **MVP:** a family member installs the connector by downloading and running a small script/app on their device. This is a technical process, done once per device, and paired with a device record the Super Admin creates in the Admin dashboard (per `Security_Architecture.md`'s device trust model).
+- **MVP:** a family member installs the connector by downloading and running a small script/app on their device. This is a technical process, done once per device, and paired with a device record the Super Admin creates in the Admin dashboard (per `Security_Architecture.md`'s device trust model). The device record's `auth_token` (generated and shown once at pairing time) is what the connector script authenticates with — there's no self-registration, so a connector with no matching trusted device + token can't reach the API at all.
 - **Commercial version (future):** this process would need to be redesigned for a non-technical user — e.g., a simple installer with a pairing code or QR code, no script-running required. Flagged here as a known MVP-only limitation, not a final design.
+- **Phones, specifically (found during Phase 5 implementation):** a real "small script" connector, as described above, is only realistic on a computer — phones (iOS in particular) don't allow an arbitrary background script to run and wake on a schedule the way this MVP design assumes. A real phone connector would need to be a native or cross-platform mobile app, which is a substantially bigger build than what's described here. **MVP as actually built only ships a computer connector** (a standalone Node.js script); phone support is left for a real mobile app effort, tracked in `Future_Ideas.md` rather than attempted as a script.
 
 ## Sync Mechanics
 
 - **Schedule:** once per day for MVP (per `System_Overview.md`), fully automatic — the connector runs as a background service/app on the device and triggers its own sync at the scheduled time without the user having to open anything manually.
 - **No retry:** if the host is unreachable at sync time, the connector does not retry — it waits for the next scheduled sync.
 - **No manual "sync now" in MVP.** A manual sync trigger is a planned commercial-version feature, not built for MVP.
+- **On-demand file fetch, reconciled with "no manual sync" (found during Phase 5 implementation):** requesting one specific file when a family member opens it (see Data Flow step 5) is a separate, much lighter-weight channel than the full folder scan above — the connector polls a small "anything requested?" endpoint every few minutes while its background service is running, distinct from its once-daily full metadata sync. This isn't a contradiction of "no manual sync now": that rule is about a person not being able to force a full re-scan of the designated folders on demand, not about disabling all communication between syncs.
 
 ## Data Flow: Typical Sync
 
@@ -57,7 +59,7 @@ Defines how connectors — the lightweight agents running on family members' com
 2. It scans its designated folder(s) for anything new, changed, or deleted since the last sync.
 3. It sends metadata for those changes to the host via the internal **Connector API** (`/app/api/connectors`, per `Application_Architecture.md`).
 4. The host updates its records (e.g., Photo or Document metadata entries per `Data_Model.md`) to reflect the device's current state.
-5. If a family member later opens a specific file through the app, the host requests that one file from the connector at that time — not before.
+5. If a family member later opens a specific file through the app, the host marks that record as requested; the source device's connector picks up the request on its next "anything requested?" poll (see Sync Mechanics above) and uploads the file at that point — not instantly, but far sooner than the next full daily sync.
 
 ## Permissions
 
@@ -77,5 +79,7 @@ Defines how connectors — the lightweight agents running on family members' com
 
 ## Questions
 
-- Should the Super Admin be able to designate **different** folders per device (e.g., Vee's phone syncs Camera Roll + Downloads, but Malachi's computer only syncs a school-documents folder), or should folder designation be uniform across all devices for MVP simplicity?
-- When a file is detected as deleted on the original device, should its metadata record on the host be deleted too, or kept with a "removed from source" status (in case it's still referenced by a Memory or shared elsewhere in the system)?
+Both resolved during implementation (Phase 5):
+
+- **Per-device folder designation.** Each device's `designated_folders` is its own list, not a global setting — Vee's phone can sync Camera Roll + Downloads while Malachi's computer only syncs a school-documents folder. Storing one JSON list per device cost nothing extra over a uniform setting and matches how households actually use different devices.
+- **Deleted-on-source handling.** The metadata record is kept, not deleted, with a `removed_from_source_at` timestamp set instead. A Memory or other reference elsewhere in the system can still point at it; the app can show it as "no longer on the source device" rather than losing the reference entirely.

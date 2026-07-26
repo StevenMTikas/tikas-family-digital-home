@@ -26,6 +26,7 @@ interface PhotoRow {
   file: string;
   uploaded_by: string;
   visibility: "public" | "private";
+  sync_status: "local" | "metadata_only" | "fetched";
 }
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -34,13 +35,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const actor = actorId ? await getAuthUser(actorId) : null;
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
-  const row = getDb().prepare(`SELECT id, file, uploaded_by, visibility FROM photos WHERE id = ?`).get(id) as
+  const row = getDb().prepare(`SELECT id, file, uploaded_by, visibility, sync_status FROM photos WHERE id = ?`).get(id) as
     | PhotoRow
     | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such photo.", 404);
 
   if (row.visibility !== "public" && !canManageUser(actor, row.uploaded_by)) {
     return errorResponse("FORBIDDEN", "You don't have access to this photo.", 403);
+  }
+
+  // Connector-sourced photo whose full bytes haven't arrived yet — the
+  // client renders the metadata's `thumbnail` instead until then (see
+  // File_Connector_Architecture.md and the request-file route).
+  if (row.sync_status === "metadata_only") {
+    return errorResponse("NOT_FETCHED", "This photo hasn't been pulled from the source device yet.", 409);
   }
 
   const buffer = await readUploadedFile(row.file);

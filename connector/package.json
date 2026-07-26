@@ -1,0 +1,13 @@
+{
+  "name": "tikas-connector",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reference file connector for Tikas Family Digital Home. See README.md and docs/01_System_Architecture/File_Connector_Architecture.md in the main app repo.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "sharp": "^0.35.3"
+  }
+}
