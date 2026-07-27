@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
-import { generateAuthToken, FOLDER_TYPES, type FolderType } from "@/lib/core/connectors";
+import { generateAuthToken, FOLDER_TYPES, unsupportedFolderTypesFor, type FolderType } from "@/lib/core/connectors";
 import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
@@ -92,9 +92,19 @@ export async function POST(req: NextRequest) {
   const user = db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId);
   if (!user) return errorResponse("INVALID_INPUT", "No such user.", 400);
 
-  // Only computers get a real connector for MVP — see File_Connector_Architecture.md's
-  // Setup & Pairing note on phones needing a native app instead of a script.
-  const enableConnector = deviceType === "computer" && designatedFolders.length > 0;
+  const unsupported = unsupportedFolderTypesFor(deviceType, designatedFolders);
+  if (unsupported.length > 0) {
+    return errorResponse(
+      "INVALID_STATE",
+      `A ${deviceType} connector can't sync: ${unsupported.join(", ")}. See File_Connector_Architecture.md.`,
+      400
+    );
+  }
+
+  // Computers and phones both get a real connector — the phone connector is
+  // a native Expo app (mobile-connector/), not the MVP's script-based model
+  // File_Connector_Architecture.md originally scoped to computers only.
+  const enableConnector = (deviceType === "computer" || deviceType === "phone") && designatedFolders.length > 0;
   const authToken = enableConnector ? generateAuthToken() : null;
 
   const id = randomUUID();

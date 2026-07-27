@@ -12,6 +12,25 @@ import { getDefaultFolderId } from "@/lib/folders/default-folder";
 export type FolderType = "camera_photos" | "documents";
 export const FOLDER_TYPES: FolderType[] = ["camera_photos", "documents"];
 
+/**
+ * Which folder types each kind of connector can actually sync.
+ *
+ * The Android phone connector (mobile-connector/) reads the camera roll only
+ * — documents would need Android's Storage Access Framework, which isn't
+ * built (see File_Connector_Architecture.md). Designating `documents` on a
+ * phone would leave the admin screen claiming a sync that can never happen,
+ * so it's rejected rather than silently accepted.
+ */
+export const SUPPORTED_FOLDER_TYPES: Record<"computer" | "phone", FolderType[]> = {
+  computer: ["camera_photos", "documents"],
+  phone: ["camera_photos"],
+};
+
+export function unsupportedFolderTypesFor(deviceType: "computer" | "phone", folders: FolderType[]): FolderType[] {
+  const supported = SUPPORTED_FOLDER_TYPES[deviceType] ?? [];
+  return folders.filter((f) => !supported.includes(f));
+}
+
 export interface ConnectorDevice {
   id: string;
   userId: string;
@@ -104,16 +123,22 @@ export function applySyncBatch(device: ConnectorDevice, items: SyncItem[]): Sync
   let updated = 0;
   let removed = 0;
 
-  const byFolderType = new Map<FolderType, SyncItem[]>();
+  const byFolderType = new Map<FolderType, Map<string, SyncItem>>();
   for (const item of items) {
     if (!device.designatedFolders.includes(item.folderType)) continue; // ignore anything outside what was actually designated
-    if (!byFolderType.has(item.folderType)) byFolderType.set(item.folderType, []);
-    byFolderType.get(item.folderType)!.push(item);
+    if (!byFolderType.has(item.folderType)) byFolderType.set(item.folderType, new Map());
+    // Keyed by path so a batch that reports the same path twice can't create
+    // two content rows for one file — last one reported wins.
+    byFolderType.get(item.folderType)!.set(item.path, item);
   }
 
-  for (const folderType of FOLDER_TYPES) {
+  // Only folder types this device is *currently* designated for. Walking all
+  // FOLDER_TYPES would treat a de-designated folder's previously-synced files
+  // as "removed from the device" on the next sync, which is a different (and
+  // false) claim — they're simply no longer being watched.
+  for (const folderType of FOLDER_TYPES.filter((f) => device.designatedFolders.includes(f))) {
     const table = TABLE_BY_FOLDER_TYPE[folderType];
-    const reported = byFolderType.get(folderType) ?? [];
+    const reported = [...(byFolderType.get(folderType)?.values() ?? [])];
     const reportedPaths = new Set(reported.map((i) => i.path));
 
     const existing = db
@@ -150,14 +175,33 @@ export function applySyncBatch(device: ConnectorDevice, items: SyncItem[]): Sync
       // to metadata_only (caught live: a 24h scheduled re-sync of an
       // untouched file was silently undoing every prior fetch).
       const genuinelyChanged = existingRow.source_modified_at !== item.modifiedAt;
+      const wasMarkedRemoved = existingRow.removed_from_source_at !== null;
+
+      // An unchanged, still-present file that sent no new thumbnail needs no
+      // write at all. On a phone camera roll that's thousands of no-op
+      // UPDATEs per sync, every sync.
+      if (!genuinelyChanged && !wasMarkedRemoved && item.thumbnail === undefined) continue;
+
       const newSyncStatus = genuinelyChanged && existingRow.sync_status === "fetched" ? "metadata_only" : existingRow.sync_status;
       if (table === "photos") {
-        db.prepare(`UPDATE photos SET sync_status = ?, removed_from_source_at = NULL, source_modified_at = ?, thumbnail = ? WHERE id = ?`).run(
-          newSyncStatus,
-          item.modifiedAt,
-          item.thumbnail ?? null,
-          existingRow.id
-        );
+        // Only overwrite the stored thumbnail when the connector actually
+        // sent one. A connector that couldn't build a thumbnail this run
+        // (a transient decode failure) or deliberately skipped rebuilding it
+        // for an unchanged photo must not wipe a good stored thumbnail.
+        if (item.thumbnail === undefined) {
+          db.prepare(`UPDATE photos SET sync_status = ?, removed_from_source_at = NULL, source_modified_at = ? WHERE id = ?`).run(
+            newSyncStatus,
+            item.modifiedAt,
+            existingRow.id
+          );
+        } else {
+          db.prepare(`UPDATE photos SET sync_status = ?, removed_from_source_at = NULL, source_modified_at = ?, thumbnail = ? WHERE id = ?`).run(
+            newSyncStatus,
+            item.modifiedAt,
+            item.thumbnail,
+            existingRow.id
+          );
+        }
       } else {
         db.prepare(`UPDATE documents SET sync_status = ?, removed_from_source_at = NULL, source_modified_at = ?, title = ? WHERE id = ?`).run(
           newSyncStatus,
@@ -166,7 +210,10 @@ export function applySyncBatch(device: ConnectorDevice, items: SyncItem[]): Sync
           existingRow.id
         );
       }
-      updated += 1;
+
+      // "Updated" means something actually changed — not just "was reported
+      // again", which would otherwise report every file on every sync.
+      if (genuinelyChanged || wasMarkedRemoved) updated += 1;
     }
 
     for (const row of existing) {

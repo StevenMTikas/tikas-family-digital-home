@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
-import { generateAuthToken, FOLDER_TYPES, type FolderType } from "@/lib/core/connectors";
+import { generateAuthToken, FOLDER_TYPES, unsupportedFolderTypesFor, type FolderType } from "@/lib/core/connectors";
 import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
@@ -72,10 +72,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   if (Array.isArray(body?.designatedFolders)) {
     const folders = (body.designatedFolders as unknown[]).filter((f): f is FolderType => FOLDER_TYPES.includes(f as FolderType));
-    if (existing.device_type !== "computer" && folders.length > 0) {
+    const unsupported = unsupportedFolderTypesFor(existing.device_type as "computer" | "phone", folders);
+    if (unsupported.length > 0) {
       return errorResponse(
         "INVALID_STATE",
-        "Only computer connectors are supported for MVP — see File_Connector_Architecture.md.",
+        `A ${existing.device_type} connector can't sync: ${unsupported.join(", ")}. See File_Connector_Architecture.md.`,
         400
       );
     }

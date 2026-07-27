@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(backups);
 }
 
-/** Manual "back up now" — the scheduled daily run (instrumentation-node.ts) covers the automatic case. */
+/** Manual "back up now" — the scheduled daily run (scripts/scheduler-hourly.ts) covers the automatic case. */
 export async function POST(req: NextRequest) {
   const { error } = await requireSuperAdmin(req);
   if (error) return error;

@@ -12,6 +12,7 @@ import {
   requestFile,
   receiveFetchedFile,
   generateAuthToken,
+  unsupportedFolderTypesFor,
   type ConnectorDevice,
 } from "./index";
 
@@ -79,6 +80,24 @@ describe("authenticateConnector", () => {
 
   it("generates a distinct token each call", () => {
     expect(generateAuthToken()).not.toBe(generateAuthToken());
+  });
+});
+
+describe("unsupportedFolderTypesFor", () => {
+  it("allows a computer both folder types", () => {
+    expect(unsupportedFolderTypesFor("computer", ["camera_photos", "documents"])).toEqual([]);
+  });
+
+  it("allows a phone camera photos", () => {
+    expect(unsupportedFolderTypesFor("phone", ["camera_photos"])).toEqual([]);
+  });
+
+  it("rejects documents on a phone — the Android connector can't read them", () => {
+    expect(unsupportedFolderTypesFor("phone", ["camera_photos", "documents"])).toEqual(["documents"]);
+  });
+
+  it("treats an empty designation as supported (a device with no connector at all)", () => {
+    expect(unsupportedFolderTypesFor("phone", [])).toEqual([]);
   });
 });
 
@@ -167,6 +186,125 @@ describe("applySyncBatch", () => {
     applySyncBatch(d, []);
     const row = getDb().prepare(`SELECT last_sync_at FROM devices WHERE id = 'device-1'`).get() as any;
     expect(row.last_sync_at).not.toBeNull();
+  });
+
+  it("keeps the stored thumbnail when a later sync reports the photo without one", () => {
+    // A connector that couldn't build a thumbnail this run (transient decode
+    // failure), or that deliberately skips rebuilding thumbnails for
+    // unchanged photos (the phone connector does), must not wipe a good one.
+    const d = device();
+    applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z", thumbnail: "data:image/jpeg;base64,GOOD" },
+    ]);
+
+    applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-02-02T00:00:00Z" }, // changed, no thumbnail sent
+    ]);
+
+    const row = getDb().prepare(`SELECT * FROM photos WHERE source_path = '/DCIM/img1.jpg'`).get() as any;
+    expect(row.thumbnail).toBe("data:image/jpeg;base64,GOOD");
+    expect(row.source_modified_at).toBe("2026-02-02T00:00:00Z"); // the change itself still applied
+  });
+
+  it("replaces the stored thumbnail when a new one is actually sent", () => {
+    const d = device();
+    applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z", thumbnail: "data:image/jpeg;base64,OLD" },
+    ]);
+    applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-02-02T00:00:00Z", thumbnail: "data:image/jpeg;base64,NEW" },
+    ]);
+
+    const row = getDb().prepare(`SELECT * FROM photos WHERE source_path = '/DCIM/img1.jpg'`).get() as any;
+    expect(row.thumbnail).toBe("data:image/jpeg;base64,NEW");
+  });
+
+  it("reports 0 updated when an unchanged file is simply re-reported", () => {
+    // Every daily sync re-reports the whole folder; counting all of it as
+    // "updated" made the connector's own log meaningless.
+    const d = device();
+    applySyncBatch(d, [{ path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" }]);
+
+    const result = applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" },
+    ]);
+    expect(result).toEqual({ created: 0, updated: 0, removed: 0 });
+  });
+
+  it("counts a genuinely changed file as updated", () => {
+    const d = device();
+    applySyncBatch(d, [{ path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" }]);
+
+    const result = applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-03-03T00:00:00Z" },
+    ]);
+    expect(result.updated).toBe(1);
+  });
+
+  it("clears removed_from_source_at when a file reappears unchanged, and counts it as updated", () => {
+    // The mtime is identical to before, so the 'nothing changed, skip the
+    // write' path must not swallow the un-removal.
+    const d = device();
+    const item = { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos" as const, modifiedAt: "2026-01-01T00:00:00Z" };
+    applySyncBatch(d, [item]);
+    applySyncBatch(d, []); // disappears
+    const result = applySyncBatch(d, [item]); // reappears, untouched
+
+    const row = getDb().prepare(`SELECT * FROM photos WHERE source_path = '/DCIM/img1.jpg'`).get() as any;
+    expect(row.removed_from_source_at).toBeNull();
+    expect(result.updated).toBe(1);
+  });
+
+  it("does not mark files removed for a folder type the device is no longer designated for", () => {
+    // Un-checking 'documents' in the admin UI must not make already-synced
+    // documents claim they were deleted off the device — they're just not
+    // being watched anymore.
+    const both = device(["camera_photos", "documents"]);
+    applySyncBatch(both, [
+      { path: "/Documents/report.pdf", filename: "report.pdf", folderType: "documents", modifiedAt: "2026-01-01T00:00:00Z" },
+    ]);
+
+    const photosOnly: ConnectorDevice = { ...both, designatedFolders: ["camera_photos"] };
+    const result = applySyncBatch(photosOnly, []);
+
+    const row = getDb().prepare(`SELECT * FROM documents WHERE source_path = '/Documents/report.pdf'`).get() as any;
+    expect(row.removed_from_source_at).toBeNull();
+    expect(result.removed).toBe(0);
+  });
+
+  it("does not create duplicate rows when one batch reports the same path twice", () => {
+    const d = device();
+    const result = applySyncBatch(d, [
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" },
+      { path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" },
+    ]);
+
+    expect(result.created).toBe(1);
+    const count = (getDb().prepare(`SELECT COUNT(*) c FROM photos WHERE source_path = '/DCIM/img1.jpg'`).get() as any).c;
+    expect(count).toBe(1);
+  });
+
+  it("scopes the diff to the syncing device — another device's files are untouched", () => {
+    const d = device();
+    applySyncBatch(d, [{ path: "/DCIM/img1.jpg", filename: "img1.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" }]);
+
+    getDb()
+      .prepare(
+        `INSERT INTO devices (id, user_id, device_type, device_name, status, added_by, auth_token, designated_folders)
+         VALUES ('device-2', 'vee', 'phone', 'Vee''s Phone', 'trusted', 'vee', 'other-token', ?)`
+      )
+      .run(JSON.stringify(["camera_photos"]));
+    getDb()
+      .prepare(
+        `INSERT INTO photos (id, file, uploaded_by, visibility, is_sensitive, source_device_id, source_path, sync_status)
+         VALUES ('other-photo', '', 'vee', 'public', 0, 'device-2', '/DCIM/other.jpg', 'metadata_only')`
+      )
+      .run();
+
+    applySyncBatch(d, []); // device-1 reports nothing at all
+
+    const other = getDb().prepare(`SELECT * FROM photos WHERE id = 'other-photo'`).get() as any;
+    expect(other.removed_from_source_at).toBeNull();
   });
 });
 

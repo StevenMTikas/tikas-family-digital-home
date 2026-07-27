@@ -52,7 +52,7 @@ export async function logSecurityEvent(event: LogEvent): Promise<void> {
 
 const RETENTION_DAYS = 30; // Logs.md: "Log entries older than 30 days are purged automatically"
 
-/** Deletes security events older than the retention window. Run daily from the scheduler (instrumentation-node.ts). */
+/** Deletes security events older than the retention window. Run daily from the scheduler (scripts/scheduler-hourly.ts). */
 export async function purgeOldSecurityEvents(now: Date = new Date()): Promise<number> {
   const cutoff = new Date(now);
   cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);

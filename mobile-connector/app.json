@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Tikas Connector",
+    "slug": "tikas-connector",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.tikasfamily.connector",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Tikas Connector uses the camera only to scan the pairing QR code shown in the family app's admin screen."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Tikas Connector reads your Camera/Photos so it can sync new photos to the family app, the same way it would from a computer's Camera Roll folder.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
+    ]
+  }
+}

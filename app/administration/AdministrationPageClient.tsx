@@ -9,6 +9,7 @@
 // tab fetches its own data client-side on first selection.
 
 import { useState, useEffect, useCallback } from "react";
+import QRCode from "qrcode";
 import * as adminApi from "@/lib/api/admin";
 import type {
   HealthSnapshot,
@@ -257,7 +258,41 @@ const FOLDER_TYPE_LABELS: Record<FolderType, string> = {
   documents: "Downloaded Documents",
 };
 
+/** True for an address only the host machine itself can reach — a QR code built from one would fail on the phone. */
+function isLoopbackUrl(url: string): boolean {
+  try {
+    const { hostname } = new URL(url);
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss: () => void }) {
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  // The phone scans this and calls it over the home network, so it must be an
+  // address the *phone* can reach. Whatever this admin screen happens to be
+  // open on is only a starting guess — if the Super Admin is setting this up
+  // on the host machine itself it'll be localhost, which would pair a phone
+  // that then silently fails every sync.
+  const [hostUrl, setHostUrl] = useState("");
+
+  useEffect(() => {
+    setHostUrl(window.location.origin);
+  }, []);
+
+  useEffect(() => {
+    if (device.deviceType !== "phone" || !hostUrl) return;
+    const payload = JSON.stringify({
+      hostUrl: hostUrl.replace(/\/+$/, ""),
+      deviceId: device.id,
+      deviceToken: device.authToken,
+    });
+    QRCode.toDataURL(payload, { width: 220, margin: 1 })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [device, hostUrl]);
+
   return (
     <div className="bg-trust/10 border border-trust/30 rounded-2xl p-5 mb-5">
       <div className="flex items-center justify-between mb-2">
@@ -268,11 +303,47 @@ function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss
           Dismiss
         </button>
       </div>
-      <p className="text-[12.5px] text-ink mb-3">
-        Copy this device id and token into the connector script&apos;s config on {device.deviceName}. It won&apos;t
-        be shown again — use &quot;Regenerate Token&quot; below if it&apos;s lost.
-      </p>
-      <div className="font-mono text-[12px] bg-surface rounded-xl p-3 break-all">
+
+      {device.deviceType === "phone" ? (
+        <>
+          <p className="text-[12.5px] text-ink mb-3">
+            Open the Tikas Connector app on {device.deviceName} and scan this code to pair it. It won&apos;t be
+            shown again — use &quot;Regenerate Token&quot; below if it&apos;s lost.
+          </p>
+
+          <label className="block text-xs font-semibold text-ink mb-1.5">Address the phone should connect to</label>
+          <input
+            type="text"
+            value={hostUrl}
+            onChange={(e) => setHostUrl(e.target.value)}
+            placeholder="http://192.168.1.20:3000"
+            className="w-full max-w-[320px] px-3 py-2 rounded-xl border border-ink/15 text-[13px] font-mono text-ink mb-1.5"
+          />
+          {isLoopbackUrl(hostUrl) ? (
+            <p className="text-[11.5px] text-urgent mb-3">
+              This is a localhost address, which only works on this computer — a phone scanning it won&apos;t be able
+              to reach the app. Replace it with this computer&apos;s address on your home network (for example
+              <span className="font-mono"> http://192.168.1.20:3000</span>) before scanning.
+            </p>
+          ) : (
+            <p className="text-[11px] text-ink-muted mb-3">
+              The QR code below encodes this address. It must be reachable from the phone on your home network.
+            </p>
+          )}
+
+          {qrDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={qrDataUrl} alt={`Pairing QR code for ${device.deviceName}`} className="rounded-xl bg-white p-2" width={220} height={220} />
+          )}
+        </>
+      ) : (
+        <p className="text-[12.5px] text-ink mb-3">
+          Copy this device id and token into the connector script&apos;s config on {device.deviceName}. It won&apos;t
+          be shown again — use &quot;Regenerate Token&quot; below if it&apos;s lost.
+        </p>
+      )}
+
+      <div className="font-mono text-[12px] bg-surface rounded-xl p-3 break-all mt-3">
         <div>
           <span className="text-ink-muted">DEVICE_ID=</span>
           {device.id}
@@ -318,7 +389,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
         userId,
         deviceType,
         deviceName: deviceName.trim(),
-        designatedFolders: deviceType === "computer" ? folders : [],
+        designatedFolders: folders,
       });
       if ("authToken" in result) setRevealedToken(result);
       setDeviceName("");
@@ -399,31 +470,26 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
             />
           </div>
 
-          {deviceType === "computer" ? (
-            <div>
-              <label className="block text-xs font-semibold text-ink mb-1.5">
-                Connector — designated folders (optional)
-              </label>
-              <div className="flex gap-4">
-                {(Object.keys(FOLDER_TYPE_LABELS) as FolderType[]).map((f) => (
-                  <label key={f} className="flex items-center gap-1.5 text-[12.5px] text-ink">
-                    <input type="checkbox" checked={folders.includes(f)} onChange={() => toggleFolder(f)} />
-                    {FOLDER_TYPE_LABELS[f]}
-                  </label>
-                ))}
-              </div>
-              <p className="text-[11px] text-ink-muted mt-1">
-                Leave both unchecked to just keep a record of this device (shown in their My Devices list) without
-                setting up a file connector. This doesn't affect whether they can log in — login only needs a
-                username and password (see Authentication.md).
-              </p>
+          <div>
+            <label className="block text-xs font-semibold text-ink mb-1.5">
+              Connector — designated folders (optional)
+            </label>
+            <div className="flex gap-4">
+              {(
+                (deviceType === "phone" ? ["camera_photos"] : Object.keys(FOLDER_TYPE_LABELS)) as FolderType[]
+              ).map((f) => (
+                <label key={f} className="flex items-center gap-1.5 text-[12.5px] text-ink">
+                  <input type="checkbox" checked={folders.includes(f)} onChange={() => toggleFolder(f)} />
+                  {FOLDER_TYPE_LABELS[f]}
+                </label>
+              ))}
             </div>
-          ) : (
-            <p className="text-[11.5px] text-ink-muted">
-              Phone connectors aren&apos;t supported yet — this just keeps a record of the phone (shown in their My
-              Devices list). See File_Connector_Architecture.md.
+            <p className="text-[11px] text-ink-muted mt-1">
+              {deviceType === "phone"
+                ? "Checking Camera/Photos generates a pairing token and QR code below for the Tikas Connector app (Android only for now — documents sync isn't supported on phones yet). Leave unchecked to just keep a record of the phone (shown in their My Devices list)."
+                : "Leave both unchecked to just keep a record of this device (shown in their My Devices list) without setting up a file connector. This doesn't affect whether they can log in — login only needs a username and password (see Authentication.md)."}
             </p>
-          )}
+          </div>
         </div>
 
         {error && <p className="text-[12px] text-urgent mt-3">{error}</p>}
@@ -476,9 +542,11 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
                 )}
               </div>
 
-              {d.status === "trusted" && d.deviceType === "computer" && (
+              {d.status === "trusted" && (
                 <div className="flex items-center gap-4 mt-2 pl-0">
-                  {(Object.keys(FOLDER_TYPE_LABELS) as FolderType[]).map((f) => (
+                  {(
+                    (d.deviceType === "phone" ? ["camera_photos"] : Object.keys(FOLDER_TYPE_LABELS)) as FolderType[]
+                  ).map((f) => (
                     <label key={f} className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
                       <input type="checkbox" checked={d.designatedFolders.includes(f)} onChange={() => handleToggleDeviceFolder(d, f)} />
                       {FOLDER_TYPE_LABELS[f]}

@@ -64,10 +64,21 @@ export default function AssistantBubble() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const lastReplyRef = useRef("");
+  const draftInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Auto-grow the textarea with content (up to the max-h set in its
+  // className, after which it scrolls internally) — a plain <textarea>
+  // doesn't do this on its own.
+  useEffect(() => {
+    const el = draftInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [draft]);
 
   // Dashboard.md's "Assistant" quick-action shortcut — there's no shared
   // layout state to reach this otherwise-self-contained global bubble
@@ -309,41 +320,48 @@ export default function AssistantBubble() {
 
             {error && <p className="text-xs text-urgent px-5 pb-2">{error}</p>}
 
-            <div className="shrink-0 p-4 border-t border-ink/[0.08] flex items-center gap-2.5">
-              <input
-                type="text"
-                placeholder="Ask me anything…"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleSend();
-                }}
-                disabled={sending}
-                className="flex-1 border border-ink/15 rounded-full px-4 py-2.5 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-              />
-              {getSpeechRecognition() && (
+            <div className="shrink-0 border-t border-ink/[0.08]">
+              <p className="text-[10.5px] text-ink-muted px-4 pt-1.5">Shift+Enter for a new line</p>
+              <div className="p-4 pt-1 flex items-end gap-2.5">
+                <textarea
+                  ref={draftInputRef}
+                  rows={1}
+                  placeholder="Ask me anything…"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  disabled={sending}
+                  className="flex-1 border border-ink/15 rounded-2xl px-4 py-2.5 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40 resize-none max-h-[120px] overflow-y-auto"
+                />
+                {getSpeechRecognition() && (
+                  <button
+                    type="button"
+                    onClick={handleMicToggle}
+                    disabled={sending}
+                    aria-label={listening ? "Stop listening" : "Speak to the Assistant"}
+                    title={listening ? "Stop listening" : "Speak to the Assistant"}
+                    className={`w-[38px] h-[38px] rounded-full flex items-center justify-center shrink-0 disabled:opacity-60 ${
+                      listening ? "bg-urgent text-white animate-pulse" : "bg-base text-ink"
+                    }`}
+                  >
+                    🎤
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={handleMicToggle}
-                  disabled={sending}
-                  aria-label={listening ? "Stop listening" : "Speak to the Assistant"}
-                  title={listening ? "Stop listening" : "Speak to the Assistant"}
-                  className={`w-[38px] h-[38px] rounded-full flex items-center justify-center shrink-0 disabled:opacity-60 ${
-                    listening ? "bg-urgent text-white animate-pulse" : "bg-base text-ink"
-                  }`}
+                  onClick={() => handleSend()}
+                  disabled={sending || !draft.trim()}
+                  aria-label="Send"
+                  className="w-[38px] h-[38px] rounded-full bg-accent-strong text-white flex items-center justify-center shrink-0 disabled:opacity-60"
                 >
-                  🎤
+                  ➤
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={() => handleSend()}
-                disabled={sending || !draft.trim()}
-                aria-label="Send"
-                className="w-[38px] h-[38px] rounded-full bg-accent-strong text-white flex items-center justify-center shrink-0 disabled:opacity-60"
-              >
-                ➤
-              </button>
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 // Tracks when each scheduled agent last ran, using the ai_interaction log
 // entries logAiInteraction already writes — no separate "last run" table
-// needed. Backs instrumentation.ts's startup scheduler for Guardian's daily
+// needed. Backs scripts/scheduler-hourly.ts's due-check for Guardian's daily
 // check (Guardian.md) and Advisor's weekly check (Advisor.md).
 
 import { getDb } from "@/db/client";

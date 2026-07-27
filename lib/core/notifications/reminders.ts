@@ -1,7 +1,7 @@
 // Reminder-firing scheduler job — Calendar.md/Tasks.md's "real-time
 // reminders" delivered through the standard Notification path. Runs every
-// scheduler tick (see instrumentation-node.ts) rather than on a daily/weekly
-// gate like Guardian/Advisor, since a reminder is due at a specific moment,
+// scheduler tick (see scripts/scheduler-reminders.ts) rather than on a
+// daily/weekly gate like Guardian/Advisor, since a reminder is due at a specific moment,
 // not once a day — idempotency comes from each row's own `reminder_sent_at`,
 // the same pattern already used for Advisor's `expireStaleSuggestions()`.
 

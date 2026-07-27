@@ -4,9 +4,7 @@
 // EventEmitter in lib/core/notifications (fine for this single self-hosted
 // instance — Decision_Log.md #001 — not a multi-instance pub/sub problem).
 //
-// Needs the Node runtime (EventEmitter, better-sqlite3 via getAuthUser),
-// not Edge — see instrumentation-node.ts's header comment for the same
-// Edge-vs-Node bundling gotcha in this codebase.
+// Needs the Node runtime (EventEmitter, better-sqlite3 via getAuthUser), not Edge.
 
 import { NextRequest } from "next/server";
 import { getAuthUser } from "@/lib/core/permissions";
