@@ -4,13 +4,19 @@
 
 import { useState, useCallback } from "react";
 import { View, Text, StyleSheet, Button, ActivityIndicator, ScrollView, Alert } from "react-native";
-import * as MediaLibrary from "expo-media-library";
+// Legacy import to match sync.ts — see sync.ts's header comment for why
+// (Expo Go doesn't yet ship the native module the SDK 57 default API needs).
+import * as MediaLibrary from "expo-media-library/legacy";
 import { runSync, pollPendingRequests } from "../sync";
 import { clearThumbnailCache } from "../thumbnail-cache";
 import { savePairing, clearPairing, type Pairing } from "../pairing";
 
 export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing; onUnpaired: () => void }) {
-  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions();
+  // Photo access only — this app never touches video or audio. Requesting
+  // the library's default (photo+video+audio) gets rejected outright in
+  // Expo Go, whose shared manifest doesn't declare audio access, and asking
+  // for more than the app actually uses is the wrong default regardless.
+  const [mediaPermission, requestMediaPermission] = MediaLibrary.usePermissions({ granularPermissions: ["photo"] });
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
@@ -37,9 +43,11 @@ export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing
       const now = new Date().toISOString();
       setLastSyncAt(now);
       await savePairing({ ...pairing, lastSyncAt: now });
-      setLastResult(
-        `${result.created} new, ${result.updated} updated, ${result.removed} removed. ${pendingResult.fulfilled} requested file(s) sent.`
-      );
+      const pendingSummary =
+        pendingResult.failed > 0
+          ? `${pendingResult.fulfilled} requested file(s) sent, ${pendingResult.failed} failed (${pendingResult.lastError ?? "unknown error"}).`
+          : `${pendingResult.fulfilled} requested file(s) sent.`;
+      setLastResult(`${result.created} new, ${result.updated} updated, ${result.removed} removed. ${pendingSummary}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sync failed.");
     } finally {

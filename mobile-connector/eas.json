@@ -1,0 +1,20 @@
+{
+  "$comment": "Not used for today's local Android build — expo run:android builds directly against the SDK installed on this machine, no Expo account needed. This exists so a future iOS build (which can ONLY happen via EAS cloud or a real Mac, never locally on Windows — see File_Connector_Architecture.md's phone-connector notes) is a config change, not a re-architecture. To actually use this: `npx eas login`, then `npx eas init` to link an Expo account/project (creates app.json's extra.eas.projectId), then e.g. `npx eas build --platform ios --profile development`.",
+  "cli": {
+    "version": ">= 21.3.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal"
+    },
+    "production": {}
+  },
+  "submit": {
+    "production": {}
+  }
+}

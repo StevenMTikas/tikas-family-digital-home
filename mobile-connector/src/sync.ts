@@ -1,17 +1,26 @@
 // The sync engine: camera-roll scan → manifest → POST /api/connectors/sync,
 // plus the pending-request fetch-and-upload loop. Mirrors the desktop
 // connector's runSync()/pollPendingRequests() (connector/index.js), adapted
-// for expo-media-library's SDK 57 Query API instead of a filesystem walk.
-// See File_Connector_Architecture.md.
+// for the camera roll instead of a filesystem walk. See
+// File_Connector_Architecture.md.
+//
+// Deliberately imports from "expo-media-library/legacy", not the package's
+// new SDK 57 default (Query/Asset, backed by a native module called
+// ExpoMediaLibraryNext) — Expo Go's prebuilt binary doesn't include that
+// module yet (SDK 57 is brand new), so the default API throws "Cannot find
+// native module 'ExpoMediaLibraryNext'" at runtime inside Expo Go, even
+// though it type-checks and Metro-bundles fine. The legacy API is bound to
+// the older, stable native module Expo Go does ship. Worth revisiting once
+// this is built as a standalone/dev-client app rather than run in Expo Go.
 
-import { Query, Asset, AssetField, MediaType } from "expo-media-library";
+import * as MediaLibrary from "expo-media-library/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
 import { postSync, getPendingRequests, postFile, type SyncItem, type SyncResult } from "./api";
 import { loadThumbnailCache, saveThumbnailCache } from "./thumbnail-cache";
 import type { Pairing } from "./pairing";
 
 const THUMBNAIL_WIDTH = 200;
-const PAGE_SIZE = 100; // Query.limit()/offset() page size — keeps memory bounded on large libraries
+const PAGE_SIZE = 100; // getAssetsAsync page size — keeps memory bounded on large libraries
 
 async function buildThumbnail(uri: string): Promise<string | undefined> {
   try {
@@ -39,33 +48,31 @@ export async function buildManifest(onProgress?: (scanned: number) => void): Pro
   const items: SyncItem[] = [];
   const previousCache = await loadThumbnailCache();
   const thumbnailCache: Record<string, string> = {};
-  let offset = 0;
+  let after: string | undefined;
 
   for (;;) {
-    const assets = await new Query()
-      .eq(AssetField.MEDIA_TYPE, MediaType.IMAGE)
-      .orderBy(AssetField.MODIFICATION_TIME)
-      .limit(PAGE_SIZE)
-      .offset(offset)
-      .exe();
-    if (assets.length === 0) break;
+    const page = await MediaLibrary.getAssetsAsync({
+      mediaType: MediaLibrary.MediaType.photo,
+      first: PAGE_SIZE,
+      after,
+      sortBy: MediaLibrary.SortBy.modificationTime,
+    });
 
-    for (const asset of assets) {
-      const info = await asset.getInfo();
-      const modifiedAt = new Date(info.modificationTime ?? info.creationTime ?? Date.now()).toISOString();
+    for (const asset of page.assets) {
+      const modifiedAt = new Date(asset.modificationTime ?? asset.creationTime ?? Date.now()).toISOString();
 
-      const alreadySent = previousCache[info.id] === modifiedAt;
-      const thumbnail = alreadySent ? undefined : await buildThumbnail(info.uri);
+      const alreadySent = previousCache[asset.id] === modifiedAt;
+      const thumbnail = alreadySent ? undefined : await buildThumbnail(asset.uri);
 
       // Carry the entry forward only if a thumbnail is genuinely on file at
       // this modifiedAt — so a failed build is retried next sync rather than
       // being remembered as done.
-      if (alreadySent) thumbnailCache[info.id] = modifiedAt;
-      else if (thumbnail) thumbnailCache[info.id] = modifiedAt;
+      if (alreadySent) thumbnailCache[asset.id] = modifiedAt;
+      else if (thumbnail) thumbnailCache[asset.id] = modifiedAt;
 
       items.push({
-        path: info.id, // stable identity for this device — opaque to the host, just used to diff
-        filename: info.filename,
+        path: asset.id, // stable identity for this device — opaque to the host, just used to diff
+        filename: asset.filename,
         folderType: "camera_photos",
         modifiedAt,
         ...(thumbnail ? { thumbnail } : {}),
@@ -73,8 +80,8 @@ export async function buildManifest(onProgress?: (scanned: number) => void): Pro
       onProgress?.(items.length);
     }
 
-    offset += assets.length;
-    if (assets.length < PAGE_SIZE) break;
+    if (!page.hasNextPage) break;
+    after = page.endCursor;
   }
 
   return { items, thumbnailCache };
@@ -90,23 +97,33 @@ export async function runSync(pairing: Pairing, onProgress?: (scanned: number) =
 }
 
 /** The lighter, more frequent channel for on-demand single-file fetch — see File_Connector_Architecture.md's Sync Mechanics. */
-export async function pollPendingRequests(pairing: Pairing): Promise<{ fulfilled: number; failed: number }> {
+export async function pollPendingRequests(
+  pairing: Pairing
+): Promise<{ fulfilled: number; failed: number; lastError?: string }> {
   const pending = await getPendingRequests(pairing);
   let fulfilled = 0;
   let failed = 0;
+  let lastError: string | undefined;
 
   for (const request of pending) {
     try {
       // sourcePath is exactly what we sent as `path` in the manifest — the
       // asset id — so resolve it back to real bytes via expo-media-library.
-      const info = await new Asset(request.sourcePath).getInfo();
-      await postFile(pairing, request.contentType, request.id, info.uri, info.filename);
+      const info = await MediaLibrary.getAssetInfoAsync(request.sourcePath);
+      const uri = info.localUri ?? info.uri;
+      await postFile(pairing, request.contentType, request.id, uri, info.filename);
       fulfilled++;
     } catch (err) {
+      // A per-item failure was previously only logged via console.warn —
+      // invisible in a standalone build with no attached debugger, so a
+      // real, reproducible failure just looked like "0 sent" with nothing
+      // to go on. Surface the actual error text back to the UI instead.
+      const message = err instanceof Error ? err.message : String(err);
       console.warn(`Could not fulfill file request for ${request.sourcePath}:`, err);
+      lastError = message;
       failed++;
     }
   }
 
-  return { fulfilled, failed };
+  return { fulfilled, failed, lastError };
 }

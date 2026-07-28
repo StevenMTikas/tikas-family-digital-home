@@ -34,7 +34,18 @@
         "expo-media-library",
         {
           "photosPermission": "Tikas Connector reads your Camera/Photos so it can sync new photos to the family app, the same way it would from a computer's Camera Roll folder.",
-          "isAccessMediaLocationEnabled": false
+          "isAccessMediaLocationEnabled": true,
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ]

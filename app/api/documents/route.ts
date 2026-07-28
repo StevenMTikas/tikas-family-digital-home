@@ -27,6 +27,7 @@ interface DocumentRow {
   sync_status: "local" | "metadata_only" | "fetched";
   file_requested_at: string | null;
   removed_from_source_at: string | null;
+  source_device_id: string | null;
 }
 
 function toDocResponse(row: DocumentRow, canDelete: boolean) {
@@ -44,6 +45,7 @@ function toDocResponse(row: DocumentRow, canDelete: boolean) {
     syncStatus: row.sync_status,
     fileRequestedAt: row.file_requested_at,
     removedFromSourceAt: row.removed_from_source_at,
+    sourceDeviceId: row.source_device_id,
   };
 }
 

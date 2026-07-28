@@ -14,7 +14,9 @@ import {
   updateEvent,
   deleteEvent,
   CalendarApiError,
+  EVENT_CATEGORIES,
   type CalendarEvent,
+  type EventCategory,
   type EventInput,
 } from "@/lib/api/calendar";
 import {
@@ -296,6 +298,11 @@ function EventDetailModal({
           <div className="text-[11.5px] text-ink-muted bg-base px-2.5 py-1 rounded-full">
             {event.visibility === "private" ? "Private" : "Public"}
           </div>
+          {event.category && (
+            <div className="text-[11.5px] text-ink-muted bg-base px-2.5 py-1 rounded-full">
+              {event.category}
+            </div>
+          )}
           <div className="text-[11.5px] text-ink-muted bg-base px-2.5 py-1 rounded-full">
             Reminder: {event.reminderLeadTime ?? "None"}
           </div>
@@ -358,6 +365,7 @@ function EventFormModal({
   const [ampm, setAmpm] = useState<"AM" | "PM">(initialSplit?.ampm ?? "AM");
   const [assigneeIds, setAssigneeIds] = useState<string[]>(initial?.assigneeIds ?? [currentUserId]);
   const [visibility, setVisibility] = useState<"public" | "private">(initial?.visibility ?? "public");
+  const [category, setCategory] = useState<string>(initial?.category ?? "");
   const [reminderLeadTime, setReminderLeadTime] = useState(initial?.reminderLeadTime ?? REMINDER_OPTIONS[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -378,6 +386,7 @@ function EventFormModal({
       description: description.trim() || null,
       dateTime: combineDateAndTime(date, hour, minute, ampm),
       visibility,
+      category: category ? (category as EventCategory) : null,
       reminderLeadTime,
       assigneeIds,
     };
@@ -509,6 +518,21 @@ function EventFormModal({
                 Private
               </button>
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-ink mb-1.5">Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+            >
+              <option value="">None</option>
+              {EVENT_CATEGORIES.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Reminder</label>

@@ -30,8 +30,8 @@ Defines the Calendar module — the shared family calendar built on the existing
 ## Screen Layout
 
 - **Weekly view:** the default and only view for MVP — a 7-day grid showing events color-coded by the person(s) they belong to.
-- **Event detail:** shows title, description, date/time, assigned family member(s), visibility (public/private), and reminder setting.
-- **Add/Edit Event:** a simple form — title, description, date/time, assign to one or more family members, visibility toggle (public by default), reminder lead time.
+- **Event detail:** shows title, description, date/time, assigned family member(s), visibility (public/private), category (if set), and reminder setting.
+- **Add/Edit Event:** a simple form — title, description, date/time, assign to one or more family members, visibility toggle (public by default), category (optional dropdown: Budget / Home Repair / Chores / Medical / School / Social/Family), reminder lead time.
 - Private events are simply omitted from other family members' view of the shared calendar — no placeholder or indication that a hidden event exists.
 
 ## Data Stored
@@ -41,6 +41,7 @@ Extends the existing **Event** entity (`Data_Model.md`) with:
 | Field | Notes |
 |---|---|
 | visibility | public (default) / private — private events are only visible to their creator (and admins, per standard admin visibility) |
+| category | optional, one of a fixed set: Budget / Home Repair / Chores / Medical / School / Social/Family — single-select, no custom values for MVP |
 
 Extends the **User** entity (`Data_Model.md`) with:
 

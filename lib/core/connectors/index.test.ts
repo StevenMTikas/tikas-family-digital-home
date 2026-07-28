@@ -13,6 +13,7 @@ import {
   receiveFetchedFile,
   generateAuthToken,
   unsupportedFolderTypesFor,
+  excludeSourcePath,
   type ConnectorDevice,
 } from "./index";
 
@@ -305,6 +306,49 @@ describe("applySyncBatch", () => {
 
     const other = getDb().prepare(`SELECT * FROM photos WHERE id = 'other-photo'`).get() as any;
     expect(other.removed_from_source_at).toBeNull();
+  });
+
+  it("does not recreate an excluded item even though the connector keeps reporting it", () => {
+    // The real scenario this exists for: a family member deletes a synced
+    // receipt photo from Content, but it's still sitting in their camera
+    // roll, so the connector reports it again on every future sync.
+    const d = device();
+    const item = { path: "/DCIM/receipt.jpg", filename: "receipt.jpg", folderType: "camera_photos" as const, modifiedAt: "2026-01-01T00:00:00Z" };
+    applySyncBatch(d, [item]);
+    expect(getDb().prepare(`SELECT COUNT(*) c FROM photos WHERE source_path = '/DCIM/receipt.jpg'`).get()).toEqual({ c: 1 });
+
+    excludeSourcePath(d.id, "/DCIM/receipt.jpg");
+    getDb().prepare(`DELETE FROM photos WHERE source_path = '/DCIM/receipt.jpg'`).run(); // what the exclude API route does
+
+    const result = applySyncBatch(d, [item]); // connector keeps reporting it — it has no idea it was deleted
+    expect(result).toEqual({ created: 0, updated: 0, removed: 0 });
+    expect(getDb().prepare(`SELECT COUNT(*) c FROM photos WHERE source_path = '/DCIM/receipt.jpg'`).get()).toEqual({ c: 0 });
+  });
+
+  it("scopes exclusions to the specific device — a different device can still sync the same relative path", () => {
+    const d = device();
+    excludeSourcePath(d.id, "/DCIM/receipt.jpg");
+
+    getDb()
+      .prepare(
+        `INSERT INTO devices (id, user_id, device_type, device_name, status, added_by, auth_token, designated_folders)
+         VALUES ('device-3', 'vee', 'phone', 'Another Phone', 'trusted', 'vee', 'yet-another-token', ?)`
+      )
+      .run(JSON.stringify(["camera_photos"]));
+    const otherDevice: ConnectorDevice = { id: "device-3", userId: "vee", deviceType: "phone", designatedFolders: ["camera_photos"] };
+
+    const result = applySyncBatch(otherDevice, [
+      { path: "/DCIM/receipt.jpg", filename: "receipt.jpg", folderType: "camera_photos", modifiedAt: "2026-01-01T00:00:00Z" },
+    ]);
+    expect(result.created).toBe(1);
+  });
+
+  it("excludeSourcePath is idempotent", () => {
+    const d = device();
+    expect(() => {
+      excludeSourcePath(d.id, "/DCIM/receipt.jpg");
+      excludeSourcePath(d.id, "/DCIM/receipt.jpg");
+    }).not.toThrow();
   });
 });
 

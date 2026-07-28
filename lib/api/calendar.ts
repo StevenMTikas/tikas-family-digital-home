@@ -1,12 +1,16 @@
 // Thin typed API client for Calendar — see Application_Architecture.md's
 // "Frontend ↔ Backend Communication" section.
 
+export const EVENT_CATEGORIES = ["Budget", "Home Repair", "Chores", "Medical", "School", "Social/Family"] as const;
+export type EventCategory = (typeof EVENT_CATEGORIES)[number];
+
 export interface CalendarEvent {
   id: string;
   title: string;
   description: string | null;
   dateTime: string;
   visibility: "public" | "private";
+  category: EventCategory | null;
   reminderLeadTime: string | null;
   createdBy: string;
   assigneeIds: string[];
@@ -29,6 +33,7 @@ export interface EventInput {
   description?: string | null;
   dateTime: string;
   visibility: "public" | "private";
+  category?: EventCategory | null;
   reminderLeadTime?: string | null;
   assigneeIds: string[];
 }

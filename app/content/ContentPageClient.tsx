@@ -19,12 +19,21 @@ import {
   uploadDocument,
   setDocumentSensitivity,
   deleteDocument,
+  excludeDocument,
   documentDownloadUrl,
   requestDocumentFile,
   DocumentsApiError,
   type DocumentItem,
 } from "@/lib/api/documents";
-import { uploadPhoto, deletePhoto, photoFileUrl, requestPhotoFile, PhotosApiError, type PhotoItem } from "@/lib/api/photos";
+import {
+  uploadPhoto,
+  deletePhoto,
+  excludePhoto,
+  photoFileUrl,
+  requestPhotoFile,
+  PhotosApiError,
+  type PhotoItem,
+} from "@/lib/api/photos";
 import { createMemory, deleteMemory, MemoryApiError, type MemoryItem } from "@/lib/api/memory";
 import {
   createFamilyKnowledgeItem,
@@ -161,6 +170,17 @@ function DocumentsTab({
     }
   }
 
+  async function handleExclude(doc: DocumentData) {
+    if (!confirm("Delete this and stop syncing it, even if it's still on the source device?")) return;
+    setError(null);
+    try {
+      await excludeDocument(doc.id);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof DocumentsApiError ? err.message : "Something went wrong.");
+    }
+  }
+
   async function handleRequestFile(doc: DocumentData) {
     setError(null);
     try {
@@ -238,9 +258,21 @@ function DocumentsTab({
                 </a>
               )}
               {doc.canDelete && (
-                <button type="button" onClick={() => handleDelete(doc)} className="text-[12.5px] text-urgent">
-                  Delete
-                </button>
+                <div className="flex flex-col items-end gap-0.5">
+                  <button type="button" onClick={() => handleDelete(doc)} className="text-[12.5px] text-urgent">
+                    Delete
+                  </button>
+                  {doc.sourceDeviceId && (
+                    <button
+                      type="button"
+                      onClick={() => handleExclude(doc)}
+                      className="text-[10.5px] text-ink-muted underline"
+                      title="Delete and stop re-syncing this specific file from its source device"
+                    >
+                      Don't sync again
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           ))}
@@ -360,6 +392,17 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
     }
   }
 
+  async function handleExclude(photo: PhotoData) {
+    if (!confirm("Delete this and stop syncing it, even if it's still on the source device?")) return;
+    setError(null);
+    try {
+      await excludePhoto(photo.id);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof PhotosApiError ? err.message : "Something went wrong.");
+    }
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -411,9 +454,21 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
                   <div className="text-[10.5px] text-ink-muted mt-0.5">No longer on the source device</div>
                 )}
                 {photo.canDelete && (
-                  <button type="button" onClick={() => handleDelete(photo)} className="text-[11px] text-urgent mt-1.5">
-                    Delete
-                  </button>
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <button type="button" onClick={() => handleDelete(photo)} className="text-[11px] text-urgent">
+                      Delete
+                    </button>
+                    {photo.sourceDeviceId && (
+                      <button
+                        type="button"
+                        onClick={() => handleExclude(photo)}
+                        className="text-[10px] text-ink-muted underline"
+                        title="Delete and stop re-syncing this specific photo from its source device"
+                      >
+                        Don't sync again
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

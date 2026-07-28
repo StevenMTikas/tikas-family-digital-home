@@ -14,6 +14,9 @@ function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
+const EVENT_CATEGORIES = ["Budget", "Home Repair", "Chores", "Medical", "School", "Social/Family"] as const;
+type EventCategory = (typeof EVENT_CATEGORIES)[number];
+
 interface EventRow {
   id: string;
   title: string;
@@ -21,6 +24,7 @@ interface EventRow {
   date_time: string;
   created_by: string;
   visibility: "public" | "private";
+  category: EventCategory | null;
   reminder_lead_time: string | null;
 }
 
@@ -43,6 +47,7 @@ function toEventResponse(row: EventRow, actorId: string, canEdit: boolean) {
     description: row.description,
     dateTime: row.date_time,
     visibility: row.visibility,
+    category: row.category,
     reminderLeadTime: row.reminder_lead_time,
     createdBy: row.created_by,
     assigneeIds: getAssigneeIds(row.id),
@@ -83,6 +88,7 @@ export async function POST(req: NextRequest) {
   const description = typeof body?.description === "string" ? body.description.trim() : null;
   const dateTime = typeof body?.dateTime === "string" ? body.dateTime : "";
   const visibility = body?.visibility === "private" ? "private" : "public";
+  const category = EVENT_CATEGORIES.includes(body?.category) ? (body.category as EventCategory) : null;
   const reminderLeadTime = typeof body?.reminderLeadTime === "string" ? body.reminderLeadTime : null;
   const assigneeIds = Array.isArray(body?.assigneeIds) ? body.assigneeIds.filter((id: unknown) => typeof id === "string") : [];
 
@@ -98,9 +104,9 @@ export async function POST(req: NextRequest) {
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO events (id, title, description, date_time, created_by, visibility, reminder_lead_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, title, description, dateTime, actor.id, visibility, reminderLeadTime);
+      `INSERT INTO events (id, title, description, date_time, created_by, visibility, category, reminder_lead_time)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, title, description, dateTime, actor.id, visibility, category, reminderLeadTime);
 
     const insertAssignment = db.prepare(
       `INSERT INTO event_assignments (event_id, user_id) VALUES (?, ?)`

@@ -13,6 +13,7 @@ export interface DocumentItem {
   syncStatus: "local" | "metadata_only" | "fetched";
   fileRequestedAt: string | null;
   removedFromSourceAt: string | null;
+  sourceDeviceId: string | null;
 }
 
 export class DocumentsApiError extends Error {}
@@ -57,6 +58,11 @@ export async function setDocumentSensitivity(id: string, isSensitive: boolean): 
 
 export async function deleteDocument(id: string): Promise<void> {
   return unwrap(await fetch(`/api/documents/${id}`, { method: "DELETE" }));
+}
+
+/** Deletes a connector-synced document AND remembers not to re-sync it, even though the source device still has it. */
+export async function excludeDocument(id: string): Promise<void> {
+  return unwrap(await fetch(`/api/documents/${id}/exclude`, { method: "POST" }));
 }
 
 export function documentDownloadUrl(id: string): string {

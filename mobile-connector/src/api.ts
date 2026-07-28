@@ -3,6 +3,7 @@
 // authenticateConnector/applySyncBatch/getPendingFileRequests need zero
 // changes to support a phone. See File_Connector_Architecture.md.
 
+import { File, Paths, UploadType } from "expo-file-system";
 import type { Pairing } from "./pairing";
 
 export interface SyncItem {
@@ -55,7 +56,22 @@ export async function getPendingRequests(pairing: Pairing): Promise<PendingReque
   return (await apiRequest(pairing, "/api/connectors/pending-requests")) as PendingRequest[];
 }
 
-/** Uploads bytes for one previously-requested file. `uri` is a local file:// URI (e.g. from MediaLibrary). */
+/**
+ * Uploads bytes for one previously-requested file. `uri` is a local file://
+ * URI (e.g. from MediaLibrary).
+ *
+ * Deliberately NOT using fetch()+FormData with a { uri, name, type } file
+ * part — the standard convention from older React Native docs — because it
+ * throws "Unsupported FormDataPart implementation" on this RN version.
+ * expo-file-system's File.createUploadTask() is the version-safe way to do
+ * a real multipart upload from a local file.
+ *
+ * The upload's filename comes from the File object's own (read-only) `name`
+ * property, derived from its path — a raw MediaLibrary asset URI doesn't
+ * carry a usable filename (Android content:// URIs resolve to something like
+ * the numeric asset id, no extension), so the source is first copied to a
+ * cache file actually named `filename` before uploading that copy.
+ */
 export async function postFile(
   pairing: Pairing,
   contentType: "document" | "photo",
@@ -63,14 +79,31 @@ export async function postFile(
   uri: string,
   filename: string
 ): Promise<void> {
-  const formData = new FormData();
-  formData.append("contentType", contentType);
-  formData.append("id", id);
-  // React Native's fetch/FormData understands this { uri, name, type } shape
-  // for a file part — see Expo's networking docs for uploading local files.
-  formData.append("file", { uri, name: filename, type: guessMimeType(filename) } as unknown as Blob);
+  const source = new File(uri);
+  const named = new File(Paths.cache, filename);
+  if (named.exists) named.delete();
+  await source.copy(named);
 
-  await apiRequest(pairing, "/api/connectors/file", { method: "POST", body: formData });
+  try {
+    const task = named.createUploadTask(`${pairing.hostUrl}/api/connectors/file`, {
+      httpMethod: "POST",
+      uploadType: UploadType.MULTIPART,
+      fieldName: "file",
+      mimeType: guessMimeType(filename),
+      parameters: { contentType, id },
+      headers: {
+        "x-device-id": pairing.deviceId,
+        "x-device-token": pairing.deviceToken,
+      },
+    });
+    const result = await task.uploadAsync();
+    if (!result || result.status < 200 || result.status >= 300) {
+      throw new ApiError(`/api/connectors/file -> ${result?.status}: ${result?.body ?? "no response body"}`);
+    }
+  } finally {
+    // Scratch copy only — never leave uploaded photos accumulating in cache.
+    if (named.exists) named.delete();
+  }
 }
 
 function guessMimeType(filename: string): string {

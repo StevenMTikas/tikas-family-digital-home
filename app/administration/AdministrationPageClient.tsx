@@ -270,6 +270,18 @@ function isLoopbackUrl(url: string): boolean {
 
 function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss: () => void }) {
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  function handleCopy() {
+    navigator.clipboard
+      .writeText(`DEVICE_ID=${device.id}\nDEVICE_TOKEN=${device.authToken}`)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {});
+  }
+
   // The phone scans this and calls it over the home network, so it must be an
   // address the *phone* can reach. Whatever this admin screen happens to be
   // open on is only a starting guess — if the Super Admin is setting this up
@@ -343,7 +355,15 @@ function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss
         </p>
       )}
 
-      <div className="font-mono text-[12px] bg-surface rounded-xl p-3 break-all mt-3">
+      <div className="relative font-mono text-[12px] bg-surface rounded-xl p-3 pr-16 break-all mt-3">
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label="Copy device id and token"
+          className="absolute top-2 right-2 px-2 py-1 rounded-lg text-[11px] font-sans font-semibold text-trust bg-trust/10 hover:bg-trust/20"
+        >
+          {copied ? "Copied" : "Copy"}
+        </button>
         <div>
           <span className="text-ink-muted">DEVICE_ID=</span>
           {device.id}

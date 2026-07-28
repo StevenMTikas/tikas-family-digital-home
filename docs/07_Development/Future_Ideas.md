@@ -32,10 +32,30 @@ Beyond the photo-to-event extraction feature already built into `Assistant.md` (
 - Complex reasoning over long documents (e.g., summarizing a lengthy insurance policy or contract).
 - Recipe/meal-plan generation from a photo of fridge/pantry contents.
 - Translation for non-English documents or conversations, if relevant to the family.
+- **User-initiated frontier model request from the Assistant** — a button in the Assistant chat letting a family member explicitly escalate their current question to a frontier model, for cases the local Llama model isn't capable enough to handle well, rather than only the app-initiated escalations above (photo-to-event, etc.). Two implementation paths, with a real tradeoff:
+  - **Real API integration** — same pattern as the other outside-call features (API key, sensitive-data gating, response captured and logged). Costs money per call and needs a provider/API key decision, but keeps the exchange in-app: logged, attachable to conversation history, routed through the existing outside-call-approval flow.
+  - **Manual browser hand-off** — copy the question to the clipboard and open the user's own claude.ai (or similar) tab for them to paste it in and read the answer there. No API key or per-call cost, since it rides on the family member's own account. Real limitation: there's no officially documented way to pre-fill claude.ai's message box via URL, so this would be a copy-then-paste step, not a single click; and since the app never sees the response, it can't be logged, saved to conversation history, or run through the sensitive-data approval gate the way a real integration could.
 
 ## Physical / Hardware Direction
 
 - **Family assistant robot** — a longer-term concept of extending the existing AI "brain" (Assistant/Advisor/Guardian, permissions model, AI_Memory) onto a mobile robot body capable of physical tasks around the house. The software architecture is largely hardware-agnostic and could extend to a "Robot" device type; the harder open problems are physical (locomotion, manipulation, safety around family members) rather than the software design already in place. Would require new physical-presence/consent rules beyond current data-permission rules (e.g., "can this robot enter a specific room") before being seriously scoped.
+
+## Adjacent Products & Platform Extensions
+
+Ideas for separate products or add-ons that build on this platform, surfaced 2026-07-27 while discussing the phone connector's architecture. Two overlapping items already have their own entries elsewhere in this doc and aren't repeated here: the **family assistant robot** (see Physical / Hardware Direction, above) and the **AI personality content channel** (see Commercial / Marketing Ideas, below).
+
+**Reuse most of the existing architecture as-is:**
+
+- **Smart-home hub integration** — bridging to Home Assistant (Matter/Zigbee/Z-Wave support already solved there) rather than writing device-specific connectors for doorbells/thermostats/appliances. The file-connector model doesn't fit smart-home devices directly: it's file-centric (not event/telemetry-centric), pull-based on a lazy schedule (wrong for "someone's at the door right now"), and one-directional (no way to send a command like "set to 70°" back to a device). Most consumer smart-home devices also don't expose a local API at all — they require going through the manufacturer's cloud, which conflicts with this project's local-first approach everywhere else (Ollama, Tailscale, SQLite). A real, separate subsystem, not a small extension.
+- **Wall-mounted "family command center" display** — the Dashboard/Morning Briefing already exists and is designed for exactly this. Run it in kiosk mode on a cheap tablet or a Raspberry Pi + touchscreen in the kitchen. Cheapest item on this list to validate — mostly hardware packaging, almost no new software needed.
+- **Turnkey home-server appliance** — package the whole stack (this app + Ollama + SQLite) as pre-configured hardware, like a Synology NAS or a Home Assistant Yellow/Green box. Directly closes the "non-technical installer" gap already flagged for connectors above. Real engineering (installer/provisioning work), but packaging what already exists rather than a new product concept.
+- **Multi-household / self-hostable commercial version** — less a new idea than the eventual destination already implied throughout this document and `Decision_Log.md`'s repeated "if this becomes commercial" notes; listed here as its own line item since it's a distinct product decision, not just a checklist of hardening tasks.
+
+**New builds using the same data/AI patterns:**
+
+- **⭐ Homeschool co-op / education-tracking module — flagged as the first item from this list to actually work on.** Malachi's homeschooling is a real, current use case for this family, not a hypothetical. A dedicated curriculum/assignment/progress-tracking layer on top of Tasks and Calendar would serve that immediately, and is a plausible vertical product for other homeschool families later. Needs its own scoping pass (not yet designed) before implementation starts.
+- **Elder-care / aging-in-place variant** — Guardian's existing "haven't seen activity from someone in a while, gentle nudge, not surveillance" pattern (see the New Feature Concepts item above) already fits this almost as-is; reframed for adult-child-monitoring-aging-parent instead of parent-monitoring-child, it's a distinct product with its own real market.
+- **Auto-generated family yearbook / "year in review"** — once real family photos are flowing through the connectors, generate an annual printed or digital keepsake (Chatbooks/Shutterfly-style) from Memory + Photos + Family Knowledge. A genuinely different business (photo-book printing/fulfillment) built on the same underlying data, not just a feature.
 
 ## Commercial / Marketing Ideas
 
@@ -101,6 +121,10 @@ Organized by area, for reference — see the linked document for full context on
 - Email and/or text delivery for Guardian's urgent alerts, in the commercial version (`Guardian.md`)
 - Reassessment of Guardian's monitoring frequency for the commercial version (`Guardian.md`)
 - Expansion of Guardian's system health/security/family-pattern starter lists (`Guardian.md`)
+
+### Dashboard
+- In-app UI to change the weather section's location, rather than only via the `WEATHER_LATITUDE`/`WEATHER_LONGITUDE` env vars (`Dashboard.md`)
+- Display which city/location the current weather reading is for, so it's clear at a glance what's being shown (`Dashboard.md`)
 
 ### Development & Documentation
 - Replace `API_Reference.md`'s route skeletons with real, documented endpoints incrementally as each module is built (`API_Reference.md`)

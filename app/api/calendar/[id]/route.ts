@@ -9,6 +9,9 @@ function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
+const EVENT_CATEGORIES = ["Budget", "Home Repair", "Chores", "Medical", "School", "Social/Family"] as const;
+type EventCategory = (typeof EVENT_CATEGORIES)[number];
+
 interface EventRow {
   id: string;
   title: string;
@@ -16,6 +19,7 @@ interface EventRow {
   date_time: string;
   created_by: string;
   visibility: "public" | "private";
+  category: EventCategory | null;
   reminder_lead_time: string | null;
 }
 
@@ -34,6 +38,7 @@ function toEventResponse(row: EventRow) {
     description: row.description,
     dateTime: row.date_time,
     visibility: row.visibility,
+    category: row.category,
     reminderLeadTime: row.reminder_lead_time,
     createdBy: row.created_by,
     assigneeIds: getAssigneeIds(row.id),
@@ -72,6 +77,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body?.dateTime === "string" && body.dateTime) updates.date_time = body.dateTime;
   if (body?.visibility === "public" || body?.visibility === "private") {
     updates.visibility = body.visibility;
+  }
+  if (body?.category === null || EVENT_CATEGORIES.includes(body?.category)) {
+    updates.category = body.category;
   }
   if (typeof body?.reminderLeadTime === "string" || body?.reminderLeadTime === null) {
     updates.reminder_lead_time = body.reminderLeadTime;

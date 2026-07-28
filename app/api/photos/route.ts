@@ -27,6 +27,7 @@ interface PhotoRow {
   file_requested_at: string | null;
   removed_from_source_at: string | null;
   thumbnail: string | null;
+  source_device_id: string | null;
 }
 
 function toPhotoResponse(row: PhotoRow, actor: AuthUser) {
@@ -50,6 +51,7 @@ function toPhotoResponse(row: PhotoRow, actor: AuthUser) {
     fileRequestedAt: row.file_requested_at,
     removedFromSourceAt: row.removed_from_source_at,
     thumbnail: row.thumbnail,
+    sourceDeviceId: row.source_device_id,
   };
 }
 

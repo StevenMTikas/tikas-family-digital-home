@@ -40,18 +40,92 @@ guaranteed daily run — see `src/background.ts`'s comment for details.
 
 ## Expo Go vs. a standalone build
 
-Expo Go is the fastest way to iterate (no native build step), and covers
-camera scanning, photo-library access, and thumbnail generation fine. Two
-things behave differently in Expo Go vs. a real standalone/EAS build:
+Expo Go is the fastest way to load code onto a phone with zero build step,
+but it's genuinely not capable of running this app for real — found the hard
+way, not a theoretical caveat:
 
-- **Background fetch reliability.** Expo Go's own background execution is
-  more constrained than a standalone app's — for a real read on how often the
-  best-effort background sync actually fires in practice, test with an EAS
-  build (`npx eas build -p android --profile development` or `--profile
-  preview`), not just Expo Go.
+- **Photo-library access doesn't actually work in Expo Go.** On current
+  Android, Expo Go's `requestPermissionsAsync` hard-rejects with "Expo Go can
+  no longer provide full access to the media library... create a development
+  build." This isn't a permissions-config problem on our end — it's an Expo
+  Go limitation with no workaround. `sync.ts` and `StatusScreen.tsx`
+  deliberately import from `expo-media-library/legacy` (not the package's
+  SDK 57 default, which Expo Go's prebuilt binary doesn't even ship the
+  native module for), but that only fixes the "cannot find native module"
+  crash — it doesn't restore real access. Sync Now will fail in Expo Go no
+  matter what.
+- **Background fetch doesn't run in Expo Go at all** (its own error says so).
+  `background.ts` detects Expo Go at runtime and skips registering it there
+  rather than warning on every launch — see its comment.
 - **Distribution.** Since this isn't going through the Play Store, a real
   build is a signed APK installed by enabling "install from unknown sources"
-  once — see [Expo's build docs](https://docs.expo.dev/build/introduction/).
+  once.
+
+**Bottom line: use Expo Go only to sanity-check UI/navigation changes without
+a rebuild. Anything touching photos or background sync needs a real build.**
+
+## Building a real APK locally
+
+```powershell
+powershell -File build-android.ps1
+```
+
+Produces `mobile-connector/app-release.apk`. Install it by enabling "install
+from unknown sources" for whatever app you use to open the file, or via
+`adb install -r app-release.apk` with the phone connected over USB (with USB
+debugging enabled in Developer Options).
+
+**Release, not debug — deliberately.** A debug APK (`assembleDebug`) doesn't
+bundle the JavaScript at all; it loads `index.android.bundle` live from a
+running Metro server, so it only works while this PC is on, reachable, and
+running `npm start`. First real-device install hit exactly this: "Unable to
+load script... make sure you're running Metro." A release build
+(`assembleRelease`) compiles the JS into the APK itself, so the installed app
+works with this PC completely off — the actual point of a standalone build.
+Expo's generated `android/app/build.gradle` signs the release build type with
+the same debug keystore by default, so this produces a real installable,
+verifiable-signed APK without needing a production keystore for local
+testing.
+
+**Why `app.json` sets `usesCleartextTraffic: true`.** Android release builds
+block plain HTTP by default since Android 9 — first real-device pairing
+attempt failed with `CLEARTEXT communication to <ip> not permitted by
+network security policy`. This app talks to the family server over plain
+HTTP by design, same as the desktop connector script and the main web app
+itself — the whole system's trust model is "reachable only on the home
+network / over Tailscale," not TLS. Allowing cleartext broadly (rather than
+allowlisting one host) is intentional: the host address is something the
+Super Admin types in at pairing time, not a fixed domain, so a per-host
+allowlist isn't practical. Set via the `expo-build-properties` config plugin
+rather than hand-editing the generated `AndroidManifest.xml`, since prebuild
+regenerates that file from scratch every run.
+
+Needs the Android SDK set up once first — JDK 17 at `D:\Software\Android\jdk`
+and the SDK command-line tools at `D:\Software\Android\Sdk`, with
+`JAVA_HOME`/`ANDROID_HOME` set (all one-time; see project memory for exact
+setup commands if this needs redoing on another machine).
+
+**Why the script copies everything to `D:\rn-build\connector` instead of
+building in place:** this project's real path is deep enough that React
+Native's native C++ build hits Windows' ~260-character path limit inside
+`node_modules/expo-modules-core/android/.cxx/...`. Windows' long-path OS
+setting doesn't fix it (some tool in the NDK/CMake/ninja chain ignores it), a
+`subst` virtual drive doesn't fix it (breaks Node's module resolution
+instead), and a directory junction doesn't fix it either (Node's `require()`
+resolves junctions back to their real long path by default, so CMake still
+sees the long path). Only a genuinely short, physically separate path works.
+`build-android.ps1` automates that copy — don't try to `gradlew
+assembleRelease` directly from this folder, it will fail.
+
+## Building via EAS cloud (needed for iOS; optional for Android)
+
+`eas.json` is already configured. iOS can only ever build this way (or on a
+real Mac) — never locally on Windows.
+
+```bash
+npx eas login
+npx eas build --platform android --profile development
+```
 
 ## If a device is revoked
 

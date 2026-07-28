@@ -16,6 +16,7 @@ export interface PhotoItem {
   fileRequestedAt: string | null;
   removedFromSourceAt: string | null;
   thumbnail: string | null;
+  sourceDeviceId: string | null;
 }
 
 export class PhotosApiError extends Error {}
@@ -62,6 +63,11 @@ export async function setPhotoVisibility(id: string, visibility: "public" | "pri
 
 export async function deletePhoto(id: string): Promise<void> {
   return unwrap(await fetch(`/api/photos/${id}`, { method: "DELETE" }));
+}
+
+/** Deletes a connector-synced photo AND remembers not to re-sync it, even though the source device still has it. */
+export async function excludePhoto(id: string): Promise<void> {
+  return unwrap(await fetch(`/api/photos/${id}/exclude`, { method: "POST" }));
 }
 
 export function photoFileUrl(id: string): string {

@@ -29,7 +29,19 @@ TaskManager.defineTask(TASK_NAME, async () => {
   }
 });
 
+// Background Fetch is unavailable in Expo Go entirely (its own error says
+// so: "You can use this API, and all others, in a development build") — so
+// registering there just throws/warns on every launch for no benefit. Same
+// runtime check expo-media-library's own legacy module uses internally.
+// Real background execution only needs testing once this runs as a
+// standalone/dev-client build, not while iterating in Expo Go.
+function isRunningInExpoGo(): boolean {
+  return typeof expo !== "undefined" && !!(globalThis as any).expo?.modules?.ExpoGo;
+}
+
 export async function registerBackgroundSync(): Promise<void> {
+  if (isRunningInExpoGo()) return;
+
   const status = await BackgroundFetch.getStatusAsync();
   if (status === BackgroundFetch.BackgroundFetchStatus.Restricted || status === BackgroundFetch.BackgroundFetchStatus.Denied) {
     return; // OS has disabled background execution for this app — nothing we can do from here

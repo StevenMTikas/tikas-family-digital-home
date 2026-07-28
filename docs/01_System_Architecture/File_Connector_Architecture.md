@@ -84,3 +84,11 @@ Both resolved during implementation (Phase 5):
 
 - **Per-device folder designation.** Each device's `designated_folders` is its own list, not a global setting — Vee's phone can sync Camera Roll + Downloads while Malachi's computer only syncs a school-documents folder. Storing one JSON list per device cost nothing extra over a uniform setting and matches how households actually use different devices.
 - **Deleted-on-source handling.** The metadata record is kept, not deleted, with a `removed_from_source_at` timestamp set instead. A Memory or other reference elsewhere in the system can still point at it; the app can show it as "no longer on the source device" rather than losing the reference entirely.
+
+## "Don't Sync This Again" (Content-Side Exclusion)
+
+Deleting a connector-synced item from Content (e.g. a receipt photo someone doesn't want in the shared family archive) only removes that one record — the connector has no idea a family member deleted anything host-side, so if the file is still present on the source device, it just gets silently re-reported and reappears as `metadata_only` on the next sync. Plain Delete alone can't express "and don't bring it back."
+
+The **"Don't sync again"** action (next to Delete, only shown for connector-synced items) solves this: it deletes the record exactly like Delete, but also records the device + source path in a `connector_exclusions` table. `applySyncBatch` checks this table first and drops any matching reported item before diffing — treated exactly as if the connector never reported it at all, on every future sync, indefinitely. There's currently no UI to undo an exclusion (removing a row from `connector_exclusions` directly is the only way); worth adding a management view if that turns out to matter in practice.
+
+Deliberately scoped to *content*, not the source device itself — this never touches the actual file on the phone or computer. The original stays completely untouched; only the host's record of it, and the host's memory of ever having seen it, are affected.

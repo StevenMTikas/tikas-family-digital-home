@@ -41,6 +41,7 @@ export default async function ContentPage() {
     sync_status: "local" | "metadata_only" | "fetched";
     file_requested_at: string | null;
     removed_from_source_at: string | null;
+    source_device_id: string | null;
   }[];
   const documents: DocumentData[] = [];
   for (const row of documentRows) {
@@ -57,6 +58,7 @@ export default async function ContentPage() {
       syncStatus: row.sync_status,
       fileRequestedAt: row.file_requested_at,
       removedFromSourceAt: row.removed_from_source_at,
+      sourceDeviceId: row.source_device_id,
     });
   }
 
@@ -74,6 +76,7 @@ export default async function ContentPage() {
     file_requested_at: string | null;
     removed_from_source_at: string | null;
     thumbnail: string | null;
+    source_device_id: string | null;
   }[];
   const photos: PhotoData[] = photoRows
     .filter((row) => row.visibility === "public" || canManageUser(actor, row.uploaded_by))
@@ -92,6 +95,7 @@ export default async function ContentPage() {
       fileRequestedAt: row.file_requested_at,
       removedFromSourceAt: row.removed_from_source_at,
       thumbnail: row.thumbnail,
+      sourceDeviceId: row.source_device_id,
     }));
 
   // --- Memory ---

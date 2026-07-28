@@ -23,6 +23,7 @@ interface EventRow {
   date_time: string;
   created_by: string;
   visibility: "public" | "private";
+  category: CalendarEventData["category"];
   reminder_lead_time: string | null;
 }
 
@@ -56,6 +57,7 @@ export default async function CalendarPage({
       description: row.description,
       dateTime: row.date_time,
       visibility: row.visibility,
+      category: row.category,
       reminderLeadTime: row.reminder_lead_time,
       createdBy: row.created_by,
       assigneeIds: (assignmentStmt.all(row.id) as { user_id: string }[]).map((r) => r.user_id),

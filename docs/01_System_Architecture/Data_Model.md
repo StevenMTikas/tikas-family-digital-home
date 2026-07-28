@@ -64,6 +64,7 @@ Represents a trusted computer or phone running a connector.
 | date_time | |
 | created_by | |
 | visibility | public (default) / private — private events are only visible to the creator and admins (see Calendar.md) |
+| category | optional, one of a fixed set: Budget / Home Repair / Chores / Medical / School / Social/Family (see Calendar.md) |
 | reminder_lead_time | AI/system reminds as the date approaches; delivered as a real-time Notification (see Calendar.md) |
 | reminder_sent_at | set once the scheduler has fired this event's reminder, so it never fires twice (Phase 6) |
 

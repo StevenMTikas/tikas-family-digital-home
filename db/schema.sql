@@ -55,6 +55,22 @@ CREATE TABLE devices (
     last_sync_at TEXT
 );
 
+-- ── Connector Exclusion ──────────────────────────────────────────────
+-- "Don't sync this again" — a family member deletes a connector-synced
+-- item (e.g. a receipt photo) that's still present on the source device.
+-- Without this, the next full sync would just re-report it and it would
+-- silently reappear as metadata_only (the connector always reports its
+-- entire current view; the host has no memory of a deleted row). Recording
+-- the excluded path here lets applySyncBatch skip it permanently, even
+-- though the file itself is untouched on the device. See
+-- File_Connector_Architecture.md.
+CREATE TABLE connector_exclusions (
+    device_id TEXT NOT NULL REFERENCES devices(id),
+    source_path TEXT NOT NULL,
+    excluded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (device_id, source_path)
+);
+
 -- ── Folder ───────────────────────────────────────────────────────────
 -- See Folder_Permissions.md
 CREATE TABLE folders (
@@ -76,6 +92,7 @@ CREATE TABLE events (
     date_time TEXT NOT NULL,
     created_by TEXT NOT NULL REFERENCES users(id),
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
+    category TEXT CHECK (category IN ('Budget', 'Home Repair', 'Chores', 'Medical', 'School', 'Social/Family')),
     reminder_lead_time TEXT,
     reminder_sent_at TEXT               -- set once the scheduler fires this event's reminder, so it never fires twice
 );

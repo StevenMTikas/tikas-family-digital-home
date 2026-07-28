@@ -111,11 +111,27 @@ interface ExistingRow {
 }
 
 /**
+ * Marks a source path as permanently excluded for this device — "don't sync
+ * this again" for a connector-synced item a family member deleted (e.g. a
+ * receipt photo) that's still present on the source device. Without this,
+ * the connector reports its *entire current view* on every sync (it has no
+ * idea a family member deleted anything host-side), so the item would just
+ * silently reappear as metadata_only on the next sync. Idempotent.
+ */
+export function excludeSourcePath(deviceId: string, sourcePath: string): void {
+  getDb()
+    .prepare(`INSERT OR IGNORE INTO connector_exclusions (device_id, source_path) VALUES (?, ?)`)
+    .run(deviceId, sourcePath);
+}
+
+/**
  * Applies one connector sync batch: diffs the reported items against what's
  * already on file for this device (by source_path), inserting new
  * metadata-only records, updating changed ones, and marking anything no
  * longer reported as removed_from_source (not deleted — see
- * File_Connector_Architecture.md's resolved Questions).
+ * File_Connector_Architecture.md's resolved Questions). Anything excluded
+ * via excludeSourcePath() is dropped before any of that — treated exactly
+ * as if the connector never reported it.
  */
 export function applySyncBatch(device: ConnectorDevice, items: SyncItem[]): SyncResult {
   const db = getDb();
@@ -123,9 +139,18 @@ export function applySyncBatch(device: ConnectorDevice, items: SyncItem[]): Sync
   let updated = 0;
   let removed = 0;
 
+  const excludedPaths = new Set(
+    (
+      db.prepare(`SELECT source_path FROM connector_exclusions WHERE device_id = ?`).all(device.id) as {
+        source_path: string;
+      }[]
+    ).map((r) => r.source_path)
+  );
+
   const byFolderType = new Map<FolderType, Map<string, SyncItem>>();
   for (const item of items) {
     if (!device.designatedFolders.includes(item.folderType)) continue; // ignore anything outside what was actually designated
+    if (excludedPaths.has(item.path)) continue; // "don't sync this again" — treat as never reported
     if (!byFolderType.has(item.folderType)) byFolderType.set(item.folderType, new Map());
     // Keyed by path so a batch that reports the same path twice can't create
     // two content rows for one file — last one reported wins.
