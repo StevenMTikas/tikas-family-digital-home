@@ -68,6 +68,15 @@ The actual filesystem paths a device's connector (or the host's own self-scan) w
 | last_scan_status | ok / not_found / unset — the host can't see a remote filesystem itself; this is fed back by the connector's sync payload (or the host self-scan directly) after actually trying the path |
 | last_scan_at | |
 
+### Connector_Exclusion
+The "Don't sync again" record for a connector-synced item (Phase 8, `File_Connector_Architecture.md`'s "Don't Sync This Again" section). A connector always reports its full current view of a designated folder with no memory of host-side deletes, so deleting a synced Document/Photo would otherwise reappear on the next sync — this table makes that deletion stick.
+
+| Field | Notes |
+|---|---|
+| device_id | composite primary key with source_path |
+| source_path | the exact path as last reported by that device's connector |
+| excluded_at | |
+
 ### Event (Calendar)
 
 | Field | Notes |

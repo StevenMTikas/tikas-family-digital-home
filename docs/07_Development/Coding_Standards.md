@@ -21,7 +21,7 @@ Defines the concrete, day-to-day coding conventions for Tikas Family Digital Hom
 ### Language & Tooling
 
 - **TypeScript throughout** — both frontend and backend (Next.js API routes, Node), not plain JavaScript. Catches type mismatches at compile time rather than runtime, which matters more without a second developer reviewing changes.
-- **ESLint + Prettier**, run automatically (pre-commit hook or editor integration) — formatting is never a manual decision or a point of inconsistency.
+- **ESLint + Prettier** — intended to run automatically (pre-commit hook or editor integration) so formatting is never a manual decision. **Known gap (as of 2026-08-03): `npm run lint` currently fails outright** — the repo pins ESLint 9, which requires a flat `eslint.config.js` that doesn't exist yet, and there is no pre-commit hook of any kind wired up. `tsc --noEmit` (strict TypeScript, below) is the only automated check actually catching mistakes today; fixing lint means adopting a flat config and triaging whatever it surfaces across the codebase.
 - **Strict TypeScript config** (`strict: true`) — no implicit `any`, no unchecked nulls, to catch the class of bugs most likely to slip through without code review.
 
 ### Naming Conventions

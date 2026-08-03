@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Defines how Tikas Family Digital Home authenticates users, trusts devices, protects data, and governs the system's one deliberate opening to the outside world — the AI's outside-call approval flow. This document is the security source of truth; other docs (Permissions, AI_Permissions, Backup) should defer to it rather than redefine these rules.
+Defines how Tikas Family Digital Home authenticates users, trusts devices, protects data, and governs the system's deliberate openings to the outside world — chiefly the AI's outside-call approval flow, plus the narrow, explicitly-scoped exceptions to it documented below (automatic frontier routing; External Family Viewer Access). This document is the security source of truth; other docs (Permissions, AI_Permissions, Backup) should defer to it rather than redefine these rules.
 
 ## Goals
 
@@ -33,7 +33,7 @@ Defines how Tikas Family Digital Home authenticates users, trusts devices, prote
 
 ## The Outside-Call Approval Flow
 
-This is the system's one deliberate opening to the internet, and it works the same way regardless of which module triggers it:
+This is the system's default posture for the AI reaching outside the home network, and it works the same way regardless of which module triggers it (with one explicit exception, below):
 
 1. The AI determines it needs to make a call outside the home network to fulfill a request.
 2. Before making the call, it presents the requesting user with **exactly what it's about to send or request** — not a generic "may I access the internet?" prompt, but the specific data/content involved.
@@ -41,6 +41,10 @@ This is the system's one deliberate opening to the internet, and it works the sa
 4. The call is only made after explicit approval, and only by a user who holds the **"Approve Outside Calls"** permission (see Permissions below).
 
 **Approval is scoped to what the approving user can already see.** A user can only approve sending a piece of data outside if they already have access to that data through their normal permissions. For example: Malachi cannot approve sending a tax document stored in one of Dad's private folders, even if he holds the outside-call permission in general — because he doesn't have access to that file in the first place. Approval never grants new data access; it only authorizes an outbound action on data the approver could already see.
+
+### Exception: Automatic Frontier Routing (2026-08-01)
+
+A narrow, deliberate exception to the approval flow above, built for the hybrid local/frontier Assistant (`Assistant.md`, `AI_Architecture.md`). When a recent stretch of conversation plausibly needs no family data or tools at all (e.g. "what's a good substitute for buttermilk?"), the Assistant routes that message straight to the configured frontier model (`claude-opus-5` for MVP) **without an approval prompt and without the "Approve Outside Calls" permission**, because by construction nothing family-specific is being sent — only the bare question. If any earlier message in that recent stretch looks family-related, the whole exchange falls back to the local model instead, specifically to avoid this exception ever carrying real family data outside the home. This is distinct from **thumbs-down escalation** (also part of hybrid routing), which does go through the standard flow above — it requires both "Approve Outside Calls" and the sensitive-data outside-transmission gate, and always previews the exact outbound payload (question, AI_Memory facts used, and the local answer) before sending.
 
 ## Standing Integration Connections (Distinct from AI-Initiated Outside Calls)
 

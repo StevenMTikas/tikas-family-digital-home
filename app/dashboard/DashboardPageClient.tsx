@@ -6,9 +6,10 @@
 // widget, quick-action shortcuts, and the same accept/dismiss/thumbs-down
 // suggestion controls used in AI Settings' Suggestion History.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatEventTime } from "@/lib/calendar/dates";
+import { getPushSubscriptionStatus, subscribeToPush, PushApiError } from "@/lib/api/push";
 import {
   getFamilyBriefing,
   getFamilyMessages,
@@ -68,6 +69,73 @@ const QUICK_ACTIONS: { label: string; icon: string; action: (router: ReturnType<
   { label: "Documents", icon: "📄", action: (router) => router.push("/content?tab=documents") },
   { label: "Search", icon: "🔍", action: (router) => router.push("/search") },
 ];
+
+// One-time nudge toward real device notifications (My Devices/Users has the
+// permanent control) — only for a browser that's supported and not already
+// subscribed/denied, and only until dismissed once (tracked per-browser via
+// localStorage, same "per-device" reasoning as the subscription itself).
+const PUSH_NUDGE_DISMISSED_KEY = "tikas:push-nudge-dismissed";
+
+function PushNudgeBanner() {
+  const [visible, setVisible] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (localStorage.getItem(PUSH_NUDGE_DISMISSED_KEY)) return;
+    getPushSubscriptionStatus()
+      .then((status) => setVisible(status === "not-subscribed"))
+      .catch(() => {});
+  }, []);
+
+  function dismiss() {
+    localStorage.setItem(PUSH_NUDGE_DISMISSED_KEY, "1");
+    setVisible(false);
+  }
+
+  async function handleEnable() {
+    setError(null);
+    setBusy(true);
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      setError("Push isn't configured on this server yet.");
+      setBusy(false);
+      return;
+    }
+    try {
+      await subscribeToPush(vapidPublicKey);
+      dismiss();
+    } catch (err) {
+      setError(err instanceof PushApiError ? err.message : "Couldn't enable notifications.");
+      setBusy(false);
+    }
+  }
+
+  if (!visible) return null;
+
+  return (
+    <div className="mt-4 bg-surface rounded-2xl p-4 shadow-[0_8px_20px_rgba(58,52,44,0.05)] flex items-center justify-between gap-4">
+      <p className="text-[12.5px] text-ink">
+        Want real notifications from this device (a Windows notification here, or your phone's normal notifications)? You
+        can turn this on any time in My Devices.
+      </p>
+      <div className="flex items-center gap-3 shrink-0">
+        {error && <p className="text-[11px] text-urgent">{error}</p>}
+        <button
+          type="button"
+          onClick={handleEnable}
+          disabled={busy}
+          className="text-[12.5px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-70"
+        >
+          {busy ? "Enabling…" : "Enable"}
+        </button>
+        <button type="button" onClick={dismiss} aria-label="Dismiss" className="text-ink-muted">
+          ✕
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPageClient({
   fullName,
@@ -231,6 +299,8 @@ export default function DashboardPageClient({
           ))}
         </div>
       )}
+
+      {scope === "mine" && <PushNudgeBanner />}
 
       {/*
         Dashboard_Layout.md's section order (mobile, top-to-bottom): Weather →

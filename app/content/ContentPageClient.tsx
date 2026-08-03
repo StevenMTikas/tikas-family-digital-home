@@ -6,10 +6,9 @@
 // built yet (Navigation.md's shell is Phase 7), so this renders as a
 // standalone page like the other module pages.
 //
-// AI-prompted category/tag prompting (Documents.md, Photos.md) isn't wired
-// up here — lib/core/ai doesn't exist yet (Phase 3). Manual fields stand in
-// for it for now, per Milestones.md's own expectation that Content works
-// "even before any AI is wired in."
+// AI-prompted category/tag prompting (Documents.md, Photos.md) still isn't
+// wired up here, despite lib/core/ai existing since Phase 3 — manual fields
+// remain the stand-in (see each doc's 2026-08-03 correction note).
 
 import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -547,7 +546,7 @@ function UploadDocumentModal({ onClose, onSaved }: { onClose: () => void; onSave
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">
-              Category <span className="font-normal text-ink-muted">(e.g. tax, medical, school — AI-prompted once the Assistant is built)</span>
+              Category <span className="font-normal text-ink-muted">(e.g. tax, medical, school)</span>
             </label>
             <input
               type="text"
@@ -732,7 +731,7 @@ function UploadPhotoModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
           </div>
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">
-              Who/Event/Tags <span className="font-normal text-ink-muted">(comma-separated — AI-prompted once the Assistant is built)</span>
+              Who/Event/Tags <span className="font-normal text-ink-muted">(comma-separated)</span>
             </label>
             <input
               type="text"

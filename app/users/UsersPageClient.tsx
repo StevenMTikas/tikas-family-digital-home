@@ -11,6 +11,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { updateMyProfile, createUser, UsersApiError, type NewUserInput } from "@/lib/api/users";
 import {
+  getPushSubscriptionStatus,
+  subscribeToPush,
+  unsubscribeFromPush,
+  PushApiError,
+} from "@/lib/api/push";
+import {
   getDocumentCategories,
   renameDocumentCategory,
   deleteDocumentCategory,
@@ -390,9 +396,96 @@ function DocumentCategoriesSection({ isSuperAdmin }: { isSuperAdmin: boolean }) 
   );
 }
 
+function PushNotificationsSection() {
+  const [status, setStatus] = useState<"unsupported" | "denied" | "subscribed" | "not-subscribed" | "checking">(
+    "checking"
+  );
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    getPushSubscriptionStatus()
+      .then(setStatus)
+      .catch(() => setStatus("unsupported"));
+  }, []);
+
+  async function handleEnable() {
+    setError(null);
+    setBusy(true);
+    const vapidPublicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    if (!vapidPublicKey) {
+      setError("Push isn't configured on this server yet.");
+      setBusy(false);
+      return;
+    }
+    try {
+      await subscribeToPush(vapidPublicKey);
+      setStatus("subscribed");
+    } catch (err) {
+      setError(err instanceof PushApiError ? err.message : "Couldn't enable push notifications.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDisable() {
+    setError(null);
+    setBusy(true);
+    try {
+      await unsubscribeFromPush();
+      setStatus("not-subscribed");
+    } catch {
+      setError("Couldn't disable push notifications.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-surface rounded-2xl p-6 shadow-[0_8px_20px_rgba(58,52,44,0.05)] max-w-[640px] mb-5">
+      <div className="text-xs font-semibold tracking-wide text-ink-muted uppercase mb-1">Notifications on This Device</div>
+      <p className="text-[11.5px] text-ink-muted mb-4">
+        Get real notifications from this browser — on a computer that's a Windows notification, on a phone it
+        shows up like any other app's notification, even when the app isn't open.
+      </p>
+
+      {status === "subscribed" && (
+        <div className="flex items-center gap-3">
+          <span className="text-[11.5px] px-3 py-1 rounded-full text-calm bg-calm/[0.14]">On</span>
+          <button type="button" onClick={handleDisable} disabled={busy} className="text-[12.5px] text-ink-muted underline disabled:opacity-60">
+            Turn off
+          </button>
+        </div>
+      )}
+      {status === "not-subscribed" && (
+        <button
+          type="button"
+          onClick={handleEnable}
+          disabled={busy}
+          className="text-[13px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-70"
+        >
+          {busy ? "Enabling…" : "Enable Notifications"}
+        </button>
+      )}
+      {status === "denied" && (
+        <p className="text-[11.5px] text-ink-muted">
+          Blocked for this site in your browser's settings — check your browser's site permissions to turn it back on.
+        </p>
+      )}
+      {status === "unsupported" && (
+        <p className="text-[11.5px] text-ink-muted">Not supported in this browser.</p>
+      )}
+      {status === "checking" && <p className="text-[11.5px] text-ink-muted">Checking…</p>}
+      {error && <p className="text-[11.5px] text-urgent mt-2">{error}</p>}
+    </div>
+  );
+}
+
 function MyDevicesTab({ devices }: { devices: Device[] }) {
   return (
     <div>
+      <PushNotificationsSection />
+
       <p className="text-xs text-ink-muted mb-4 max-w-[640px]">
         Devices linked to your account. Adding, removing, or editing a device requires an admin — see
         Administration.

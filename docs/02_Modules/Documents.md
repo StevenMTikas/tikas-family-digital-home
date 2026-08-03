@@ -4,22 +4,24 @@
 
 Defines the Documents module — upload, categorization, sensitivity flagging, and viewing behavior for Office files and PDFs (per the Document entity in `Data_Model.md`). Folder-level permissions and structure are fully covered in `Folder_Permissions.md` and are not repeated here; cross-cutting search across Documents, Photos, and Family Knowledge is covered in `Search.md`, not duplicated here.
 
+**Corrected 2026-08-03:** this document previously described AI-prompted categorization at upload as a built MVP feature (mirroring the same false claim in `Photos.md`, corrected the same day). It was never wired up — the upload form uses a plain manual text field for category, with no AI involvement. See Future Enhancements below.
+
 ## Goals
 
-- Make categorization effortless by having the AI prompt for it at upload time, rather than requiring a manual dropdown hunt.
+- Make categorization effortless — currently via a manual text field at upload (see "Pick from existing categories, or add a new one" below); AI prompting is a planned enhancement (see Future Enhancements), not requiring a manual dropdown hunt.
 - Give the uploader control over sensitivity by default, while keeping the Super Admin as a backstop who can override or restrict further.
 - Keep MVP scope honest — download-only viewing for now, in-app preview clearly marked as a near-term upgrade.
 
 ## User Stories
 
-- As a family member, I want the AI to ask me what category a document belongs to when I upload it, instead of hunting through a dropdown.
+- As a family member, I want the AI to ask me what category a document belongs to when I upload it, instead of hunting through a dropdown. *(Not yet built — see Future Enhancements; today this is a manual text field with autocomplete against existing categories.)*
 - As a family member, I want to mark a document sensitive myself when I upload it, if I know it should be gated.
 - As the Super Admin, I want the ability to override a document's sensitivity setting or make something private if needed, even after it's uploaded.
 - As a family member, I want to open a document I have access to, even if for now that just means downloading it.
 
 ## Features
 
-- **AI-prompted categorization at upload.** When a document is uploaded, the AI asks the uploader for its category (e.g., tax, medical, school), consistent with the same prompting pattern used for Photos.
+- **Manual categorization at upload (MVP as built).** The uploader enters a category as free text. **AI-prompted categorization is not yet built** — see Future Enhancements for the originally-planned version where the AI asks for the category (e.g., tax, medical, school) instead.
 - **Uploader sets sensitivity, Super Admin can override.** The uploader sets the `is_sensitive` flag at upload time. The Super Admin can override this flag later on **any** document, any time — either raising or lowering sensitivity — regardless of the uploader's original setting, from the Documents list's toggle or the Edit Document modal. (2026-07-31) A non-admin uploader can also change sensitivity on **their own** document after the fact, but only from the Edit Document modal (Content page, or reached via Accept on a categorization suggestion) — the list's toggle stays Super-Admin-only, so an ordinary family member has exactly one path to this, and only for what they uploaded. Enforced server-side (`PATCH /api/documents/[id]`) as "Super Admin, or the uploader" — the UI just doesn't surface the list toggle to anyone else.
 - **Download-only for MVP.** Opening a document downloads it; there's no in-app preview yet. In-app preview is a clearly planned near-term upgrade (see Future Enhancements).
 - **Standard folder permissions apply.** Uploading to a folder requires Edit access on that folder, same as any other content addition — nothing document-specific beyond what `Folder_Permissions.md` already defines.
@@ -29,7 +31,7 @@ Defines the Documents module — upload, categorization, sensitivity flagging, a
 ## Screen Layout
 
 - **Document list (per folder):** shows documents within a folder, with title, category, and sensitivity indicator.
-- **Upload flow:** select file → AI prompts for category → uploader sets sensitivity (default off) → confirm.
+- **Upload flow:** select file → uploader enters category manually (AI prompting not yet built, see Future Enhancements) → uploader sets sensitivity (default off) → confirm.
 - **Document detail:** title, category, sensitivity flag, uploaded_by, uploaded_at, folder location, download action.
 - Sensitive documents are visually marked, consistent with the same pattern already used for AI_Memory (`AI_Memory.md`) and Family Knowledge.
 
@@ -39,7 +41,7 @@ Uses the existing **Document** entity from `Data_Model.md` — no new fields req
 
 ## AI Responsibilities
 
-- Prompts the uploader for category at upload time, per the pattern established in `Photos.md`'s upload-time metadata prompting.
+- **Not yet built:** prompting the uploader for category at upload time, per the pattern originally planned to match `Photos.md`'s upload-time metadata prompting. Categorization today is manual, unrelated to the AI layer.
 - Uses `category` to power recommendations, per `Data_Model.md`'s existing note on AI recommendations.
 - Respects `is_sensitive` for any outside-transmission scenario, per `AI_Permissions.md`.
 
@@ -58,6 +60,7 @@ Uses the existing **Document** entity from `Data_Model.md` — no new fields req
 
 ## Future Enhancements
 
+- **AI-prompted categorization at upload** — the originally-planned feature described above (Purpose/Features): the AI asks the uploader for a category instead of the current manual text field. Not yet built despite the AI layer existing since Phase 3.
 - In-app document preview, rather than download-only.
 - Document versioning (already noted as a commercial-only item in `Data_Model.md`).
 - Support for additional file types beyond Office/PDF (CAD, STL — already noted in `Data_Model.md`, `System_Overview.md`).

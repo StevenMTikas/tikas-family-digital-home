@@ -24,7 +24,7 @@ Sequences the build order for Tikas Family Digital Home's MVP into logical phase
 - Core shared services scaffolded (empty but structured): `/lib/core/permissions`, `/lib/core/ai`, `/lib/core/logging`, per `Application_Architecture.md`.
 
 ### Phase 1 — Identity & Permissions
-- **Authentication** (`Authentication.md`): username/password login, device-gated access, trusted-device session persistence.
+- **Authentication** (`Authentication.md`): username/password login (no device-gated access for login itself — see `Authentication.md`'s 2026-07-26 correction), trusted-device session persistence for file connectors.
 - **Authorization** (`Authorization.md`): roles, admin scope, individually grantable permissions.
 - **Folder Permissions** (`Folder_Permissions.md`): nesting, inheritance, View/Edit/Delete model, shared family folder.
 - **Users module** (`Users.md`): profile self-editing, Add User flow, family visibility, device view.

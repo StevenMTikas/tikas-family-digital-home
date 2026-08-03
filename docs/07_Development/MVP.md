@@ -24,12 +24,12 @@ MVP is built for **one household**: Dad (Super Admin), Vee (scoped Admin over Ma
 ### In Scope for MVP
 
 - **Infrastructure:** self-hosted on Dad's desktop (host), local Ollama AI, SQLite, connectors syncing once daily with no retry (`Technology_Stack.md`, `System_Overview.md`, `File_Connector_Architecture.md`).
-- **Identity & permissions:** username/password auth, device-gated login, full role/scope/permission model, folder permissions with nesting and inheritance (`Authentication.md`, `Authorization.md`, `Folder_Permissions.md`).
+- **Identity & permissions:** username/password auth (no device-gated login — see `Authentication.md`'s 2026-07-26 correction), full role/scope/permission model, folder permissions with nesting and inheritance (`Authentication.md`, `Authorization.md`, `Folder_Permissions.md`).
 - **Content modules, at their MVP feature level:**
   - Calendar: one-off events only, weekly view only, public/private visibility (`Calendar.md`)
   - Tasks: flat structure (no priority/categories), parent-to-child assignment only (`Tasks.md`)
-  - Documents: download-only, no versioning, AI-prompted categorization (`Documents.md`)
-  - Photos: AI-prompted tagging, no dedup (`Photos.md`)
+  - Documents: download-only, no versioning, manual categorization — AI-prompted categorization not yet built, see `Documents.md`'s 2026-08-03 correction
+  - Photos: manual tagging, no dedup — AI-prompted tagging not yet built, see `Photos.md`'s 2026-08-03 correction
   - Memory: text/photo/document combinations, no dedup (`Memory.md`)
   - Family Knowledge: general items plus structured Password Entries, MVP-level encryption (`Family_Knowledge.md`)
 - **AI layer:** Assistant, Advisor, Guardian, AI_Memory, AI_Suggestions — all suggest-only, no autonomous action (`AI_Permissions.md`); Guardian's family-pattern monitoring stays fact-only, not judgment-based (`Guardian.md`).
