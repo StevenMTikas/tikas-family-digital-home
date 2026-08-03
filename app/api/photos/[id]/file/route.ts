@@ -5,8 +5,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import path from "path";
 import { getDb } from "@/db/client";
-import { getAuthUser, canManageUser } from "@/lib/core/permissions";
+import { getAuthUser } from "@/lib/core/permissions";
 import { readUploadedFile } from "@/lib/storage/files";
+import { isPhotoVisibleTo } from "@/lib/photos/visibility";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -26,6 +27,8 @@ interface PhotoRow {
   file: string;
   uploaded_by: string;
   visibility: "public" | "private";
+  is_sensitive: number;
+  folder_id: string | null;
   sync_status: "local" | "metadata_only" | "fetched";
 }
 
@@ -35,12 +38,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const actor = actorId ? await getAuthUser(actorId) : null;
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
-  const row = getDb().prepare(`SELECT id, file, uploaded_by, visibility, sync_status FROM photos WHERE id = ?`).get(id) as
-    | PhotoRow
-    | undefined;
+  const row = getDb()
+    .prepare(`SELECT id, file, uploaded_by, visibility, is_sensitive, folder_id, sync_status FROM photos WHERE id = ?`)
+    .get(id) as PhotoRow | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such photo.", 404);
 
-  if (row.visibility !== "public" && !canManageUser(actor, row.uploaded_by)) {
+  if (!(await isPhotoVisibleTo(actor, row))) {
     return errorResponse("FORBIDDEN", "You don't have access to this photo.", 403);
   }
 

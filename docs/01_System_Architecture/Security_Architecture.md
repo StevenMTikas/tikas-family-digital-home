@@ -27,7 +27,7 @@ Defines how Tikas Family Digital Home authenticates users, trusts devices, prote
 
 - Data should be **encrypted whenever possible.** Concretely, for the MVP:
   - Data at rest (the SQLite database and stored files on the host) should be encrypted on disk where practical.
-  - Data in transit between connectors/phones and the host is **not encrypted for MVP**, since it never leaves the home network.
+  - Data in transit between connectors/phones and the host is **not encrypted for MVP**, since it never leaves the home network. *(2026-08 exception: the new External Family Viewer surface, below, does leave the home network by design — Tailscale Funnel terminates real TLS for that one path, so it's encrypted in transit despite the general MVP exception, not because of it.)*
   - If this system is ever developed into a commercial or cloud-facing product, **all data — at rest and in transit — would need to be encrypted**, and the local-network exception above would no longer apply.
 - Backups are stored **locally for now**; cloud backup storage is a planned future enhancement, at which point backup encryption becomes mandatory rather than optional (see `Backup.md`).
 
@@ -63,6 +63,19 @@ Full detail lives in `04_Permissions`; this is the subset that's security-critic
   - Off by default for every account, including adults.
   - **Off by default for a child's account specifically, as a standing rule** — not something a family admin is expected to turn on casually for a minor.
   - Must be explicitly granted (or later revoked) by a family admin, at account setup or any time after.
+
+## External Family Viewer Access (2026-08)
+
+A deliberate, narrow exception to this document's "reachable only from the home network" posture — see `Decision_Log.md`'s entry recording it. A relative outside the household (e.g. a grandparent) can get real, view-only access to Photos and the Family Board without joining the household's Tailscale network, via a genuinely separate account type and network path from everything else this document describes.
+
+- **A new role, `external_viewer`** (`Authorization.md`) — not a restricted version of Basic User. No admin authority, no AI features, no folder-edit/delete rights.
+- **A separate login surface**, `/family-view/login` + `POST /api/family-view/auth/login`, distinct from the family's `/login`. Each surface refuses the other role's accounts server-side (an `external_viewer` cannot authenticate on `/login`, and vice versa), so no family member's credentials are ever reachable from the open internet even indirectly.
+- **A second, separate Tailscale HTTPS listener on port 8443**, not path-scoped Funnel on the main port. Tailscale Funnel's public/private toggle (`AllowFunnel`) applies per **hostname:port**, not per path — confirmed the hard way during rollout, when enabling Funnel for `/family-view` on port 443 briefly made the *entire* app (including `/login`, `/dashboard`, `/api/admin`) publicly reachable, since everything else configured on that same port shares its Funnel state. Caught within roughly a minute via `tailscale funnel status --json` and immediately disabled. The real, verified-working design: port **443** keeps mounting the whole app (`/` → the full Next.js server) tailnet-only, exactly as before, with Funnel **never** enabled on it. A separate listener on port **8443** mounts *only* the five external routes (`/family-view`, `/api/family-view`, `/api/photos`, `/api/family-board`, `/_next`) and is the only port with Funnel enabled. The external URL is therefore `https://desktop-70nj2se.tail20d216.ts.net:8443/family-view/login`, not a port-less URL — confirmed live that hitting an unmounted path on 8443 (e.g. `/dashboard`, `/api/users`) 404s rather than falling through to the main app.
+- **A finite 30-day session TTL** for this role specifically (vs. indefinite sessions for every internal role, per Authentication above) — a defense-in-depth control against a leaked/shared cookie on a publicly-reachable account. Access is still re-checked fresh on every request regardless (`getAuthUser`/`canAccessFolder`/`hasPermission`), so this isn't a revocation mechanism — an admin revoking a grant takes effect on the very next request either way.
+- **Failed-login lockout**, `/family-view` login only (5 attempts / 15-minute window) — the internal `/login` route intentionally keeps this document's "no lockouts" MVP simplification, since it's reachable only from the trusted tailnet; only the newly-public surface needed this new protection (`lib/core/auth/throttle.ts`).
+- **A hard route boundary enforced in `middleware.ts`**, not just hidden navigation — an `external_viewer` session is redirected away from every non-`/family-view` page/route (confirmed live: without this, a valid external_viewer session could load `/dashboard`'s full content, just without the nav chrome), and a non-`external_viewer` session is redirected away from `/family-view`.
+- **Photos access** is granted per-account through the existing Folder Permissions system (`Folder_Permissions.md`) on a dedicated "Family Photos" folder every photo is auto-filed into — no new grant UI. Sensitive-flagged photos are always excluded for this role regardless of folder grant. **Family Board access** is a single boolean (`View Family Board`, `Authorization.md`), toggled from Administration's External Viewers tab.
+- **Accounts are created and managed** from Administration's External Viewers tab (`app/api/admin/external-viewers`), a parallel flow to the regular Add User screen, not a 4th option on it.
 
 ## Security Event Logging
 

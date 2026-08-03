@@ -23,6 +23,8 @@ import type {
   DeviceInfo,
   DeviceWithToken,
   FolderType,
+  WatchedFolderPath,
+  ExternalViewerInfo,
 } from "@/lib/api/admin";
 
 export interface OverviewData {
@@ -37,7 +39,7 @@ export interface FamilyMemberOption {
   fullName: string;
 }
 
-type Tab = "overview" | "monitoring" | "folders" | "logs" | "backup" | "internet" | "devices";
+type Tab = "overview" | "monitoring" | "folders" | "logs" | "backup" | "internet" | "devices" | "external-viewers";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "overview", label: "Overview" },
@@ -47,6 +49,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "logs", label: "Logs" },
   { id: "backup", label: "Backup" },
   { id: "internet", label: "Internet Access" },
+  { id: "external-viewers", label: "External Viewers" },
 ];
 
 function formatTimestamp(iso: string | null): string {
@@ -101,6 +104,7 @@ export default function AdministrationPageClient({
         {tab === "logs" && <LogsTab familyMembers={familyMembers} />}
         {tab === "backup" && <BackupTab />}
         {tab === "internet" && <InternetAccessTab onViewLogs={() => setTab("logs")} />}
+        {tab === "external-viewers" && <ExternalViewersTab onViewFolders={() => setTab("folders")} />}
       </div>
     </main>
   );
@@ -388,13 +392,41 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
   const [folders, setFolders] = useState<FolderType[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Watched folder *paths* per device (distinct from the folder-*type*
+  // checkboxes above, which already existed) — keyed by device id.
+  const [folderPaths, setFolderPaths] = useState<Record<string, WatchedFolderPath[]>>({});
+  const [newPath, setNewPath] = useState<Record<string, string>>({});
+  const [newPathType, setNewPathType] = useState<Record<string, FolderType>>({});
+
   const load = useCallback(() => {
-    adminApi.fetchDevices().then(setDevices).catch((err) => setError(err.message));
+    adminApi
+      .fetchDevices()
+      .then((list) => {
+        setDevices(list);
+        Promise.all(
+          list.map((d) => adminApi.fetchDeviceFolders(d.id).then((paths) => [d.id, paths] as const))
+        ).then((pairs) => setFolderPaths(Object.fromEntries(pairs)));
+      })
+      .catch((err) => setError(err.message));
   }, []);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  async function handleAddFolderPath(deviceId: string) {
+    const path = (newPath[deviceId] ?? "").trim();
+    const folderType = newPathType[deviceId] ?? "documents";
+    if (!path) return;
+    await adminApi.addDeviceFolder(deviceId, folderType, path);
+    setNewPath((prev) => ({ ...prev, [deviceId]: "" }));
+    load();
+  }
+
+  async function handleRemoveFolderPath(deviceId: string, folderId: string) {
+    await adminApi.removeDeviceFolder(deviceId, folderId);
+    load();
+  }
 
   function toggleFolder(f: FolderType) {
     setFolders((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
@@ -534,7 +566,10 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
               <div className="flex items-center gap-4">
                 <div className="flex-1">
                   <div className="text-[13.5px] text-ink">
-                    {d.deviceName} <span className="text-ink-muted">· {nameById.get(d.userId) ?? d.userName}</span>
+                    {d.deviceName}{" "}
+                    <span className="text-ink-muted">
+                      · {d.isHostDevice ? "this server" : nameById.get(d.userId) ?? d.userName}
+                    </span>
                   </div>
                   <div className="text-[11.5px] text-ink-muted mt-0.5">
                     {d.deviceType === "computer" ? "Computer" : "Phone"} ·{" "}
@@ -551,7 +586,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
                 >
                   {d.status === "trusted" ? "Trusted" : "Revoked"}
                 </div>
-                {d.status === "trusted" && (
+                {d.status === "trusted" && !d.isHostDevice && (
                   <button
                     type="button"
                     onClick={() => handleRevoke(d.id)}
@@ -572,7 +607,7 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
                       {FOLDER_TYPE_LABELS[f]}
                     </label>
                   ))}
-                  {d.connectorEnabled && (
+                  {d.connectorEnabled && !d.isHostDevice && (
                     <button
                       type="button"
                       onClick={() => handleRegenerateToken(d.id)}
@@ -581,6 +616,82 @@ function DevicesTab({ familyMembers }: { familyMembers: FamilyMemberOption[] }) 
                       Regenerate Token
                     </button>
                   )}
+                </div>
+              )}
+
+              {d.status === "trusted" && (
+                <div className="mt-2.5 pl-0 flex flex-col gap-2">
+                  {(
+                    (d.deviceType === "phone" ? ["camera_photos"] : Object.keys(FOLDER_TYPE_LABELS)) as FolderType[]
+                  ).map((folderType) => {
+                    const paths = (folderPaths[d.id] ?? []).filter((p) => p.folderType === folderType);
+                    return (
+                      <div key={folderType}>
+                        <div className="text-[10.5px] font-semibold text-ink-muted uppercase tracking-wide mb-1">
+                          {FOLDER_TYPE_LABELS[folderType]} folders
+                        </div>
+                        {paths.length === 0 ? (
+                          <p className="text-[11.5px] text-ink-muted italic">None configured yet.</p>
+                        ) : (
+                          <div className="flex flex-col gap-1">
+                            {paths.map((p) => (
+                              <div key={p.id} className="flex items-center gap-2 text-[11.5px]">
+                                {p.lastScanStatus === "not_found" && (
+                                  <span
+                                    title={`Couldn't reach this folder as of ${formatTimestamp(p.lastScanAt)} — check the path is correct and the device is online.`}
+                                    aria-label="Folder not found on last check"
+                                    className="text-urgent"
+                                  >
+                                    ⚠
+                                  </span>
+                                )}
+                                <span className="font-mono text-ink flex-1 break-all">{p.path}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveFolderPath(d.id, p.id)}
+                                  className="text-ink-muted hover:text-urgent"
+                                  aria-label={`Remove folder ${p.path}`}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  <div className="flex items-center gap-2 mt-1">
+                    <select
+                      value={newPathType[d.id] ?? (d.deviceType === "phone" ? "camera_photos" : "documents")}
+                      onChange={(e) => setNewPathType((prev) => ({ ...prev, [d.id]: e.target.value as FolderType }))}
+                      className="px-2 py-1.5 rounded-lg border border-ink/15 text-[11.5px] text-ink"
+                    >
+                      {(
+                        (d.deviceType === "phone" ? ["camera_photos"] : Object.keys(FOLDER_TYPE_LABELS)) as FolderType[]
+                      ).map((f) => (
+                        <option key={f} value={f}>
+                          {FOLDER_TYPE_LABELS[f]}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder={d.isHostDevice ? "e.g. C:\\Users\\YourName\\Documents" : "Exact path on that computer"}
+                      value={newPath[d.id] ?? ""}
+                      onChange={(e) => setNewPath((prev) => ({ ...prev, [d.id]: e.target.value }))}
+                      className="flex-1 px-2.5 py-1.5 rounded-lg border border-ink/15 text-[11.5px] font-mono text-ink placeholder:font-sans placeholder:text-ink-muted/70"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddFolderPath(d.id)}
+                      disabled={!(newPath[d.id] ?? "").trim()}
+                      className="text-[11.5px] font-semibold text-accent-strong disabled:opacity-50"
+                    >
+                      + Add folder
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -1142,6 +1253,227 @@ function InternetAccessTab({ onViewLogs }: { onViewLogs: () => void }) {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ── External Viewers ────────────────────────────────────────────────
+// Parallel to Add User (app/users/UsersPageClient.tsx), not a 4th role
+// option on that form — see app/api/admin/external-viewers/route.ts's
+// header comment for why. Photos access is granted through the existing
+// Folder Permissions tab, unchanged (a newly invited External Viewer
+// already appears in that tab's grant-picker automatically).
+function ExternalViewersTab({ onViewFolders }: { onViewFolders: () => void }) {
+  const [viewers, setViewers] = useState<ExternalViewerInfo[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [boardAccess, setBoardAccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [resettingId, setResettingId] = useState<string | null>(null);
+  const [newPasswordDraft, setNewPasswordDraft] = useState("");
+
+  const load = useCallback(() => {
+    adminApi
+      .fetchExternalViewers()
+      .then(setViewers)
+      .catch((err) => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function handleInvite() {
+    if (!fullName.trim() || !username.trim() || !password) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await adminApi.inviteExternalViewer({
+        fullName: fullName.trim(),
+        username: username.trim(),
+        password,
+        boardAccess,
+      });
+      setFullName("");
+      setUsername("");
+      setPassword("");
+      setBoardAccess(false);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not invite External Viewer.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToggleBoardAccess(viewer: ExternalViewerInfo) {
+    setBusyId(viewer.id);
+    try {
+      await adminApi.updateExternalViewer(viewer.id, { boardAccess: !viewer.boardAccess });
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not update.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleResetPassword(id: string) {
+    if (!newPasswordDraft) return;
+    setBusyId(id);
+    try {
+      await adminApi.updateExternalViewer(id, { newPassword: newPasswordDraft });
+      setResettingId(null);
+      setNewPasswordDraft("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not reset password.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    setBusyId(id);
+    try {
+      await adminApi.deleteExternalViewer(id);
+      load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not remove.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div>
+      {error && <p className="text-[13px] text-urgent mb-4">{error}</p>}
+
+      <div className="bg-surface rounded-2xl p-6 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mb-6 max-w-[560px]">
+        <div className="text-xs font-semibold text-ink-muted uppercase tracking-wide mb-4">Invite External Viewer</div>
+        <div className="flex flex-col gap-3.5">
+          <div>
+            <label className="block text-xs font-semibold text-ink mb-1.5">Full Name</label>
+            <input
+              type="text"
+              placeholder="e.g. Grandma Tikas"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink placeholder:text-ink-muted/70"
+            />
+          </div>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-ink mb-1.5">Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-ink mb-1.5">Password</label>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] font-body text-ink"
+              />
+            </div>
+          </div>
+          <label className="flex items-center gap-1.5 text-[12.5px] text-ink">
+            <input type="checkbox" checked={boardAccess} onChange={(e) => setBoardAccess(e.target.checked)} />
+            Give access to the Family Board
+          </label>
+          <p className="text-[11px] text-ink-muted">
+            Photos access is granted separately — after inviting, use the{" "}
+            <button type="button" onClick={onViewFolders} className="font-semibold text-accent-strong">
+              Folder Permissions tab
+            </button>{" "}
+            to grant this person View access to specific folders.
+          </p>
+          <button
+            type="button"
+            onClick={handleInvite}
+            disabled={saving || !fullName.trim() || !username.trim() || !password}
+            className="text-[13px] font-semibold text-white bg-accent-strong py-2.5 rounded-xl disabled:opacity-60"
+          >
+            {saving ? "Inviting…" : "Invite"}
+          </button>
+        </div>
+      </div>
+
+      {viewers === null ? (
+        <p className="text-[13px] text-ink-muted">Loading…</p>
+      ) : viewers.length === 0 ? (
+        <p className="text-[13px] text-ink-muted">No External Viewers yet.</p>
+      ) : (
+        <div className="bg-surface rounded-2xl px-5 shadow-[0_8px_20px_rgba(58,52,44,0.05)]">
+          {viewers.map((v, i) => (
+            <div key={v.id} className={`py-3 ${i > 0 ? "border-t border-ink/[0.07]" : ""}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-[13.5px] font-semibold text-ink">{v.fullName}</div>
+                  <div className="text-[12px] text-ink-muted">@{v.username}</div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <label className="flex items-center gap-1.5 text-[12px] text-ink">
+                    <input
+                      type="checkbox"
+                      checked={v.boardAccess}
+                      disabled={busyId === v.id}
+                      onChange={() => handleToggleBoardAccess(v)}
+                    />
+                    Family Board
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setResettingId(resettingId === v.id ? null : v.id);
+                      setNewPasswordDraft("");
+                    }}
+                    className="text-[12px] text-ink-muted underline"
+                  >
+                    Reset Password
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(v.id)}
+                    disabled={busyId === v.id}
+                    className="text-[12px] text-urgent disabled:opacity-60"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+              {resettingId === v.id && (
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="text"
+                    placeholder="New password"
+                    value={newPasswordDraft}
+                    onChange={(e) => setNewPasswordDraft(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl border border-ink/15 text-[12.5px] text-ink"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleResetPassword(v.id)}
+                    disabled={busyId === v.id || !newPasswordDraft}
+                    className="text-[12px] font-semibold text-accent-strong disabled:opacity-60"
+                  >
+                    Save
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -53,6 +53,20 @@ Represents a trusted computer or phone running a connector.
 | designated_folders | list of folder-type strings (`camera_photos`, `documents`) the connector scans on this device — decided per-device, not uniform across all devices, so e.g. Vee's phone can sync Camera Roll + Downloads while Malachi's computer only syncs a school-documents folder (see File_Connector_Architecture.md's Questions) |
 | added_at | |
 | last_sync_at | connectors sync once/day for MVP; see System_Overview.md |
+| is_host_device | true for exactly one row — the host machine itself, scanned in-process rather than by a real connector (see File_Connector_Architecture.md's "Host Self-Scan") |
+
+### Device_Watched_Path
+The actual filesystem paths a device's connector (or the host's own self-scan) watches — set from the Admin dashboard, per File_Connector_Architecture.md's "Host- and Dashboard-Managed Folders" section. Distinct from `Device.designated_folders`, which only records which folder *types* are enabled, not real paths.
+
+| Field | Notes |
+|---|---|
+| id | |
+| device_id | |
+| folder_type | camera_photos / documents |
+| path | a real path on that device's filesystem, entered as free text — no remote folder browser (see File_Connector_Architecture.md) |
+| added_at | |
+| last_scan_status | ok / not_found / unset — the host can't see a remote filesystem itself; this is fed back by the connector's sync payload (or the host self-scan directly) after actually trying the path |
+| last_scan_at | |
 
 ### Event (Calendar)
 
@@ -67,6 +81,9 @@ Represents a trusted computer or phone running a connector.
 | category | optional, one of a fixed set: Budget / Home Repair / Chores / Medical / School / Social/Family (see Calendar.md) |
 | reminder_lead_time | AI/system reminds as the date approaches; delivered as a real-time Notification (see Calendar.md) |
 | reminder_sent_at | set once the scheduler has fired this event's reminder, so it never fires twice (Phase 6) |
+| recurrence_id | shared by every occurrence of one recurring series; NULL for a one-off event. Each occurrence is its own independent row — there's no separate "recurrence rule" entity (see Calendar.md, `lib/core/recurrence.ts`) |
+| recurrence_frequency | daily / weekly / biweekly / monthly / yearly, or NULL if not recurring — same value copied onto every occurrence in a series |
+| recurrence_until | internal bookkeeping only — if set on any row in a series, caps how far the scheduler's rolling-window generator extends it (stamped when a "this and future" delete truncates the series) |
 
 ### Event_Assignment
 Join table — an event can be assigned to multiple family members.
@@ -90,8 +107,11 @@ Join table — an event can be assigned to multiple family members.
 | assigned_by | user who assigned the task; equals owner_id for self-assigned tasks. Only an Admin/Super Admin can set this to someone other than the owner (see Tasks.md) |
 | visibility | public (default) / private — same model as Event visibility (see Calendar.md) |
 | reminder_sent_at | set once the scheduler has fired this task's due-date reminder (Phase 6) |
+| recurrence_id | shared by every occurrence of one recurring series; NULL for a one-off task. Each occurrence is its own independent row, starting fresh at status 'not_done' (see Tasks.md, `lib/core/recurrence.ts`) |
+| recurrence_frequency | daily / weekly / biweekly / monthly / yearly, or NULL if not recurring |
+| recurrence_until | internal bookkeeping only — see the matching Event field above |
 
-*Sub-tasks and recurring tasks are not in MVP scope — flat task list only. See Future Enhancements.*
+*Sub-tasks are not in MVP scope — flat task list only. See Future Enhancements.*
 
 ### Document
 
@@ -101,7 +121,7 @@ Join table — an event can be assigned to multiple family members.
 | file | Office file or PDF for MVP |
 | title | |
 | folder_id | determines permission boundary |
-| category | e.g., tax, medical, school — used for AI recommendations |
+| category | e.g., tax, medical, school — used for AI recommendations. Free-text, but kept in sync with the Document Category list below (see that entity) |
 | is_sensitive | boolean — flags content requiring the extra sensitive-data outside-transmission gate (see AI_Permissions.md); unavailable to minors regardless of other permissions |
 | uploaded_by | |
 | uploaded_at | |
@@ -114,6 +134,17 @@ Join table — an event can be assigned to multiple family members.
 | embedding | vector embedding over title/category for cross-content search (Phase 6, see Search.md) |
 
 *No versioning in MVP — each document is the current file only. Versioning is a commercial-app requirement, not MVP. See Future Enhancements.*
+
+### Document Category
+
+The manageable list backing Document's free-text `category` field (2026-07-30). Kept in sync automatically: saving a document with a category name not yet on this list inserts it. A Super Admin can rename a category (cascades to every document using the old name, from their profile page's "Document Categories" section) or delete one (blocked while any document still uses it — must be reassigned first). One category per document for MVP; see Future Enhancements for multi-category support.
+
+| Field | Notes |
+|---|---|
+| id | |
+| name | unique |
+| created_by | |
+| created_at | |
 
 ### Folder
 Represents a permission boundary for documents (and potentially other content types).
@@ -280,6 +311,7 @@ A stored record of a suggestion the AI made — enables the AI to learn from wha
 | accepted_at | when the user accepted and was routed to complete the action |
 | feedback | thumbs_up / thumbs_down / dismissed / none — dismiss is a neutral signal, thumbs_down is a stronger negative signal (see AI_Suggestions.md) |
 | feedback_at | |
+| suggested_value | a single structured value alongside `content`'s prose, e.g. one specific document category — lets Accept pre-fill something unambiguous. NULL for suggestion types with nothing structured to suggest yet (see AI_Suggestions.md) |
 
 ### Notification
 
@@ -295,6 +327,20 @@ A stored record of a suggestion the AI made — enables the AI to learn from wha
 | severity | routine (default) / urgent — determines visual treatment, e.g. red for urgent (see Notifications.md, Guardian.md) |
 
 *MVP delivers notifications real-time only. Persisting notification history (time, text, liked/not) with this table is a near-term enhancement, not core MVP — see Future Enhancements.*
+
+### Family_Message
+
+(2026-07-31) A plain human-to-family channel on the family-wide Dashboard view — see `Dashboard.md`'s "Family Message Board" section.
+
+| Field | Notes |
+|---|---|
+| id | |
+| text | |
+| posted_by | who posted it — an Admin or Super Admin only (see Dashboard.md's Permissions) |
+| created_at | |
+| updated_at | changes on edit; UI shows "(edited)" when it differs from created_at |
+
+*Unlike Notification, no cap or expiry — a message stays until the poster (or the Super Admin, as a backstop) deletes it. Editing is restricted to the original poster only, even for the Super Admin.*
 
 ### Push_Subscription
 A browser/device's Web Push registration (Phase 6, see Notifications.md's "Android push for MVP"). Not part of the module doc's own Data Stored section — this is the storage the feature genuinely needs, not a new family-data concept; a user can hold more than one (e.g. phone + desktop Chrome).
@@ -341,10 +387,11 @@ A browser/device's Web Push registration (Phase 6, see Notifications.md's "Andro
 ## Future Enhancements
 
 - Document versioning (commercial-app requirement, not MVP).
-- Recurring tasks and sub-tasks.
+- Sub-tasks.
 - Persistent notification history table (time, text, liked/not) — noted above as a near-term but post-MVP addition.
 - Support for additional file types beyond Office/PDF (CAD, STL) — will require new Document-like fields (e.g., file type-specific metadata).
 - Possible expansion of Family_Knowledge_Item into more structured sub-types (e.g., a dedicated Password entry with stronger encryption than a general text note).
+- Multiple categories per document (currently one) — would need a many-to-many table and updates everywhere a document's category is read (Content page, Advisor, search).
 
 ## Questions
 

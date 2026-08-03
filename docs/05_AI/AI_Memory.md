@@ -39,6 +39,7 @@ AI_Memory entries are organized into categories for browsing and structure, whil
 - Entries **fade in priority automatically** the longer they go without being reinforced, using the existing `confidence` and `last_reinforced_at` fields (`AI_Architecture.md`).
 - A fact that hasn't been reinforced in a long time is deprioritized in what the AI actively draws on, rather than being deleted outright — it can still be reinforced again later if it resurfaces as relevant.
 - Reinforcement happens the same way entries are created: from explicit statements, inferred patterns, or `AI_Suggestion` feedback (per `AI_Architecture.md`).
+- **Both write paths are real as of 2026-08-01** (`lib/core/ai/memory.ts`'s `createMemoryFact` existed from the start but was never actually called by anything until now — a real gap surfaced when a user directly asked the Assistant what it knew about someone and it correctly said "I don't have a persistent profile," since nothing had ever written one): a thumbs-up on an `AI_Suggestion` card creates/reinforces a fact tagged `suggestion_feedback` (`app/api/ai-suggestions/[id]/route.ts`); and a daily, per-user background pass (`lib/core/ai/memory-extraction.ts`, same scheduled-job cadence as Guardian/Advisor) distills a small number of durable facts from a person's recent Assistant conversation plus their own upcoming events/open tasks, tagged `inferred_pattern`. Capped at 5 new facts per person per run so one noisy conversation can't flood a profile — consistent with "the dashboard should learn slowly."
 
 ### Flagging (User-Initiated, Super Admin-Resolved)
 
@@ -48,9 +49,10 @@ AI_Memory entries are organized into categories for browsing and structure, whil
 
 ## Screen Layout
 
-- A "What the AI Knows About Me" view, accessible from a user's own profile/settings, showing their AI_Memory entries grouped by category.
+- A "What the AI Knows About Me" view, accessible from a user's own profile/settings (AI Settings screen), showing their AI_Memory entries grouped by category.
 - Each entry shows its content and a way to **flag** it (visible to all users, viewing their own memory).
-- Edit controls on entries are only visible/functional when the Super Admin is viewing (their own, or — with appropriate access — another family member's), consistent with `AI_Permissions.md`.
+- Edit controls on entries are only visible/functional when the Super Admin is viewing (their own, or another family member's), consistent with `AI_Permissions.md`.
+- **Built 2026-08-01:** a "Viewing: [dropdown]" selector on the same screen, shown only to a Super Admin (everyone) or an Admin who holds "View Child Activity Logs" (their `admin_scope` only) — switching it fetches that person's AI_Memory via `GET /api/ai-memory?userId=`. The Flag button only appears when viewing your own memory (flagging is self-only, per Permissions below); the Edit control only appears for the Super Admin, on whichever profile is currently shown.
 - Sensitive entries are visually marked, same pattern as sensitive Documents/Family Knowledge items.
 
 ## Data Stored
@@ -79,9 +81,9 @@ Extends the **AI_Memory** entity introduced in `AI_Architecture.md`:
 
 ## Permissions
 
-- **View:** every user can view their own AI_Memory.
+- **View:** every user can view their own AI_Memory. **Extended 2026-08-01, matching the household's general visibility rule** (an Admin sees anyone in their scope, a Super Admin sees anyone): an Admin can view a user in their `admin_scope` only if also individually granted **"View Child Activity Logs"** (`Authorization.md` — reusing that existing grantable permission rather than making bare admin-scope membership sufficient on its own); a Super Admin can view anyone unconditionally. Enforced both by `GET /api/ai-memory`'s `userId` param and by the Assistant's `get_user_profile` tool (`Assistant.md`) — the same rule either way.
 - **Edit:** Super Admin only, for any user's AI_Memory (per `AI_Permissions.md`).
-- **Flag:** every user can flag entries about themselves; this does not require any elevated permission.
+- **Flag:** every user can flag entries about themselves; this does not require any elevated permission. This is also, functionally, the "request an edit" path Assistant.md's general household rule describes — a Basic User can't edit their own memory, but flagging surfaces the request to the Super Admin.
 
 ## Dependencies
 

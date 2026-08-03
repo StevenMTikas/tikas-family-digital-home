@@ -125,4 +125,25 @@ if (existingSharedFolder) {
   console.log('Seeded shared "Whole Family" folder.');
 }
 
+// The default folder every Photos upload is auto-filed into (2026-08), so an
+// external_viewer can be granted photo access through the existing Folder
+// Permissions system — see lib/folders/default-photos-folder.ts. Deliberately
+// a separate folder from "Whole Family" above (Documents/Family Knowledge),
+// so a Photos grant never exposes those unrelated contents.
+const existingPhotosFolder = db.prepare("SELECT id FROM folders WHERE is_default_photos_folder = 1").get();
+if (existingPhotosFolder) {
+  console.log("Default photos folder already exists — nothing to do.");
+} else {
+  db.prepare(
+    `INSERT INTO folders (id, name, owner_id, parent_folder_id, inherits_permissions, permissions, is_default_photos_folder)
+     VALUES (?, ?, ?, NULL, 1, ?, 1)`
+  ).run(
+    crypto.randomUUID(),
+    "Family Photos",
+    dadId,
+    JSON.stringify({ roles: { super_admin: "delete", admin: "delete", basic_user: "view" } })
+  );
+  console.log('Seeded default "Family Photos" folder.');
+}
+
 db.close();

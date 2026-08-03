@@ -8,6 +8,8 @@ import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser, hasPermission, type AuthUser } from "@/lib/core/permissions";
 import { saveUploadedFile } from "@/lib/storage/files";
 import { indexContent } from "@/lib/core/search";
+import { isPhotoVisibleTo } from "@/lib/photos/visibility";
+import { getDefaultPhotosFolderId } from "@/lib/folders/default-photos-folder";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -28,6 +30,7 @@ interface PhotoRow {
   removed_from_source_at: string | null;
   thumbnail: string | null;
   source_device_id: string | null;
+  folder_id: string | null;
 }
 
 function toPhotoResponse(row: PhotoRow, actor: AuthUser) {
@@ -62,9 +65,10 @@ export async function GET(req: NextRequest) {
 
   const rows = getDb().prepare(`SELECT * FROM photos ORDER BY uploaded_at DESC`).all() as PhotoRow[];
 
-  const visible = rows.filter(
-    (row) => row.visibility === "public" || canManageUser(actor, row.uploaded_by)
-  );
+  const visible: PhotoRow[] = [];
+  for (const row of rows) {
+    if (await isPhotoVisibleTo(actor, row)) visible.push(row);
+  }
 
   return NextResponse.json(visible.map((row) => toPhotoResponse(row, actor)));
 }
@@ -93,9 +97,15 @@ export async function POST(req: NextRequest) {
   const storedPath = await saveUploadedFile("photos", file);
   const db = getDb();
   const id = randomUUID();
+  // Every upload is auto-filed into the default "Family Photos" folder,
+  // invisible to the uploader — this is solely what lets a Super Admin later
+  // grant an external_viewer access via the existing Folder Permissions UI;
+  // it has no effect on internal visibility rules. See
+  // lib/folders/default-photos-folder.ts.
+  const folderId = getDefaultPhotosFolderId(db);
   db.prepare(
-    `INSERT INTO photos (id, file, uploaded_by, location, tags, visibility, is_sensitive, event_link)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO photos (id, file, uploaded_by, location, tags, visibility, is_sensitive, event_link, folder_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     storedPath,
@@ -104,7 +114,8 @@ export async function POST(req: NextRequest) {
     tags.length > 0 ? JSON.stringify(tags) : null,
     visibility,
     isSensitive ? 1 : 0,
-    typeof eventLink === "string" && eventLink ? eventLink : null
+    typeof eventLink === "string" && eventLink ? eventLink : null,
+    folderId
   );
 
   const row = db.prepare(`SELECT * FROM photos WHERE id = ?`).get(id) as PhotoRow;

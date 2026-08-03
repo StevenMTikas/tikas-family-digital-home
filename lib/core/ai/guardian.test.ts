@@ -5,9 +5,11 @@ process.env.BACKUP_DIR = "/tmp/tikas-guardian-test-backups-does-not-exist";
 
 import fs from "fs";
 import path from "path";
-import { beforeAll, describe, it, expect } from "vitest";
+import { randomUUID } from "crypto";
+import { beforeAll, afterEach, describe, it, expect, vi } from "vitest";
 import { getDb } from "@/db/client";
-import { detectGuardianFindings, computeHealthSnapshot, getLatestHealthSnapshot } from "./guardian";
+import { detectGuardianFindings, runGuardianCheck, computeHealthSnapshot, getLatestHealthSnapshot } from "./guardian";
+import { getRecentNotifications } from "@/lib/core/notifications";
 
 const NOW = new Date("2026-07-25T12:00:00Z");
 function daysAgo(days: number): string {
@@ -64,6 +66,38 @@ beforeAll(() => {
     "sec-4",
     daysAgo(0)
   );
+
+  // Admin scoped to Malachi, individually granted View Child Activity Logs
+  // — should receive safety notifications about him.
+  db.prepare(
+    `INSERT INTO users (id, username, password_hash, full_name, role, admin_scope, view_child_activity_logs) VALUES (?, ?, 'x', ?, ?, ?, 1)`
+  ).run("vee", "vee.test", "Vee", "admin", JSON.stringify(["malachi"]));
+  // Scoped to Malachi too, but never granted the permission — should not.
+  db.prepare(
+    `INSERT INTO users (id, username, password_hash, full_name, role, admin_scope, view_child_activity_logs) VALUES (?, ?, 'x', ?, ?, ?, 0)`
+  ).run("carol", "carol.test", "Carol", "admin", JSON.stringify(["malachi"]));
+
+  const conversationId = randomUUID();
+  db.prepare(`INSERT INTO conversations (id, user_id, title) VALUES (?, 'malachi', NULL)`).run(conversationId);
+  db.prepare(`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`).run(
+    randomUUID(),
+    conversationId,
+    "I don't know what to do, I want to hurt myself.",
+    daysAgo(0)
+  );
+  db.prepare(`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`).run(
+    randomUUID(),
+    conversationId,
+    "What's a good recipe for chicken tonight?",
+    daysAgo(0)
+  );
+  // Well outside the "since" window used below — must never surface.
+  db.prepare(`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`).run(
+    randomUUID(),
+    conversationId,
+    "I want to hurt myself, this is an old message.",
+    daysAgo(30)
+  );
 });
 
 describe("detectGuardianFindings", () => {
@@ -94,9 +128,47 @@ describe("detectGuardianFindings", () => {
     expect(findings.some((f) => f.rawFinding.includes("Dad's account"))).toBe(false);
   });
 
-  it("routes every non-disk finding to the passive channel for MVP", () => {
-    const findings = detectGuardianFindings(NOW).filter((f) => !f.rawFinding.includes("Disk space"));
+  it("routes every non-disk, non-safety finding to the passive channel for MVP", () => {
+    const findings = detectGuardianFindings(NOW).filter((f) => !f.rawFinding.includes("Disk space") && f.channel !== "safety");
     expect(findings.every((f) => f.channel === "passive")).toBe(true);
+  });
+});
+
+describe("detectGuardianFindings — safety channel", () => {
+  it("flags a message matching a safety keyword, targeting the person who wrote it", () => {
+    const findings = detectGuardianFindings(NOW, daysAgo(1));
+    const finding = findings.find((f) => f.channel === "safety");
+    expect(finding).toBeDefined();
+    expect(finding!.targetUserId).toBe("malachi");
+    expect(finding!.rawFinding).toContain("self-harm");
+  });
+
+  it("never quotes the actual private message text in the finding", () => {
+    const findings = detectGuardianFindings(NOW, daysAgo(1));
+    const finding = findings.find((f) => f.channel === "safety")!;
+    expect(finding.rawFinding).not.toContain("hurt myself");
+  });
+
+  it("does not flag an ordinary message with no safety keyword", () => {
+    const findings = detectGuardianFindings(NOW, daysAgo(1));
+    const safetyFindings = findings.filter((f) => f.channel === "safety");
+    // Only one finding for Malachi even though he sent two messages in the
+    // window (one matching, one not) — the recipe question shouldn't add a
+    // second, and a second matching message wouldn't duplicate either (see
+    // the next test).
+    expect(safetyFindings).toHaveLength(1);
+  });
+
+  it("excludes a matching message outside the since window", () => {
+    // A "since" right before the in-window message excludes the 30-day-old
+    // one but still catches the recent one.
+    const findings = detectGuardianFindings(NOW, daysAgo(1));
+    expect(findings.filter((f) => f.channel === "safety")).toHaveLength(1);
+  });
+
+  it("finds nothing when since excludes even the recent message", () => {
+    const findings = detectGuardianFindings(NOW, new Date(NOW.getTime() + 1000).toISOString());
+    expect(findings.some((f) => f.channel === "safety")).toBe(false);
   });
 });
 
@@ -133,5 +205,44 @@ describe("getLatestHealthSnapshot", () => {
     const { checkedAt, health } = await getLatestHealthSnapshot();
     expect(checkedAt).toBe("2026-07-25T06:00:00.000Z");
     expect(health).toEqual(loggedHealth);
+  });
+});
+
+// Placed last — runGuardianCheck() writes its own real ai_interaction log
+// entry (via logAiInteraction), which would otherwise invalidate the
+// "Guardian has never run" assumption the getLatestHealthSnapshot tests above depend on.
+describe("runGuardianCheck — safety notification fanout", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("notifies the Super Admin and the permitted scoped Admin, but not the unpermitted one", async () => {
+    // runGuardianCheck() itself always uses the real current clock (it has
+    // no `now` override), unlike the fixed-NOW tests above — so this
+    // message is seeded relative to real time, not the fixed NOW constant,
+    // to land inside whatever window runGuardianCheck() actually computes.
+    const conversationId = randomUUID();
+    const db = getDb();
+    db.prepare(`INSERT INTO conversations (id, user_id, title) VALUES (?, 'malachi', NULL)`).run(conversationId);
+    db.prepare(`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`).run(
+      randomUUID(),
+      conversationId,
+      "someone is following me and I'm scared",
+      new Date().toISOString()
+    );
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ message: { role: "assistant", content: "A safety-related note was flagged." } }),
+      })
+    );
+
+    await runGuardianCheck();
+
+    expect(getRecentNotifications("dad").some((n) => n.text === "A safety-related note was flagged.")).toBe(true);
+    expect(getRecentNotifications("vee").some((n) => n.text === "A safety-related note was flagged.")).toBe(true);
+    expect(getRecentNotifications("carol").some((n) => n.text === "A safety-related note was flagged.")).toBe(false);
   });
 });

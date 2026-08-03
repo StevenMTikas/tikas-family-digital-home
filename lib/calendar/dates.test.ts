@@ -9,6 +9,11 @@ import {
   splitDateTime,
   formatEventTime,
   formatFullDate,
+  getMonthStart,
+  getMonthGridStart,
+  formatMonthLabel,
+  formatDayHeading,
+  getMonthGridDays,
 } from "./dates";
 
 describe("getWeekStart", () => {
@@ -97,5 +102,61 @@ describe("splitDateTime", () => {
 describe("formatFullDate", () => {
   it("formats an ISO-ish datetime as 'Mon, Jul 20'", () => {
     expect(formatFullDate("2026-07-20T08:30:00")).toBe("Mon, Jul 20");
+  });
+});
+
+describe("getMonthStart", () => {
+  it("returns the 1st of the month for a mid-month date", () => {
+    expect(toISODate(getMonthStart(new Date(2026, 7, 15)))).toBe("2026-08-01");
+  });
+});
+
+describe("getMonthGridStart", () => {
+  it("rolls back to the preceding Sunday when the 1st isn't a Sunday", () => {
+    // August 1, 2026 is a Saturday — the grid should start Sunday July 26.
+    expect(toISODate(getMonthGridStart(new Date(2026, 7, 15)))).toBe("2026-07-26");
+  });
+
+  it("stays on the 1st when it's already a Sunday", () => {
+    // November 1, 2026 is a Sunday.
+    expect(toISODate(getMonthGridStart(new Date(2026, 10, 15)))).toBe("2026-11-01");
+  });
+});
+
+describe("formatMonthLabel", () => {
+  it("formats as 'August 2026'", () => {
+    expect(formatMonthLabel(new Date(2026, 7, 15))).toBe("August 2026");
+  });
+});
+
+describe("formatDayHeading", () => {
+  it("formats as 'Sunday, August 2, 2026'", () => {
+    expect(formatDayHeading(new Date(2026, 7, 2))).toBe("Sunday, August 2, 2026");
+  });
+});
+
+describe("getMonthGridDays", () => {
+  it("always returns a fixed 42-cell grid", () => {
+    expect(getMonthGridDays(new Date(2026, 7, 15))).toHaveLength(42);
+  });
+
+  it("marks leading/trailing days from adjacent months as not the current month", () => {
+    const days = getMonthGridDays(new Date(2026, 7, 15));
+    expect(days[0]).toMatchObject({ isoDate: "2026-07-26", isCurrentMonth: false });
+    expect(days[41]).toMatchObject({ isoDate: "2026-09-05", isCurrentMonth: false });
+  });
+
+  it("marks every day actually in the target month as current", () => {
+    const days = getMonthGridDays(new Date(2026, 7, 15));
+    const augustDays = days.filter((d) => d.isCurrentMonth);
+    expect(augustDays).toHaveLength(31);
+    expect(augustDays[0]!.isoDate).toBe("2026-08-01");
+    expect(augustDays[30]!.isoDate).toBe("2026-08-31");
+  });
+
+  it("flags isToday correctly against the given reference date", () => {
+    const today = new Date(2026, 7, 10);
+    const days = getMonthGridDays(new Date(2026, 7, 15), today);
+    expect(days.find((d) => d.isToday)?.isoDate).toBe("2026-08-10");
   });
 });

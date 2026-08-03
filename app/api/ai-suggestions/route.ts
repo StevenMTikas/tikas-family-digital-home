@@ -21,6 +21,8 @@ interface SuggestionRow {
   accepted_at: string | null;
   feedback: string;
   related_entity_id: string | null;
+  suggested_value: string | null;
+  related_entity_title: string | null;
 }
 
 function toResponse(row: SuggestionRow) {
@@ -35,8 +37,21 @@ function toResponse(row: SuggestionRow) {
     acceptedAt: row.accepted_at,
     feedback: row.feedback,
     relatedEntityId: row.related_entity_id,
+    suggestedValue: row.suggested_value,
+    relatedEntityTitle: row.related_entity_title,
   };
 }
+
+// module determines which table related_entity_id points into — there's no
+// single FK, so the name has to be resolved per-module rather than joined.
+const RELATED_ENTITY_TITLE_SQL = `
+  CASE s.module
+    WHEN 'documents' THEN (SELECT title FROM documents WHERE id = s.related_entity_id)
+    WHEN 'calendar' THEN (SELECT title FROM events WHERE id = s.related_entity_id)
+    WHEN 'tasks' THEN (SELECT title FROM tasks WHERE id = s.related_entity_id)
+    ELSE NULL
+  END AS related_entity_title
+`;
 
 export async function GET(req: NextRequest) {
   const actorId = req.headers.get("x-user-id");
@@ -51,8 +66,8 @@ export async function GET(req: NextRequest) {
   const rows = getDb()
     .prepare(
       status === "active"
-        ? `SELECT * FROM ai_suggestions WHERE user_id = ? AND expired = 0 AND feedback = 'none' ORDER BY relevancy_score DESC, generated_at DESC LIMIT 10`
-        : `SELECT * FROM ai_suggestions WHERE user_id = ? ORDER BY generated_at DESC`
+        ? `SELECT s.*, ${RELATED_ENTITY_TITLE_SQL} FROM ai_suggestions s WHERE s.user_id = ? AND s.expired = 0 AND s.feedback = 'none' ORDER BY s.relevancy_score DESC, s.generated_at DESC LIMIT 10`
+        : `SELECT s.*, ${RELATED_ENTITY_TITLE_SQL} FROM ai_suggestions s WHERE s.user_id = ? ORDER BY s.generated_at DESC`
     )
     .all(actor.id) as SuggestionRow[];
 

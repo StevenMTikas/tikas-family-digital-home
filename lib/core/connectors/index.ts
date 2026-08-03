@@ -83,6 +83,152 @@ export function authenticateConnector(deviceId: string, token: string): Connecto
   };
 }
 
+/**
+ * Same as authenticateConnector, but for trusted in-process callers that
+ * already know the device id and don't have (or need) a token — the host
+ * self-scan (lib/core/connectors/hostScan.ts) is the only caller. Never use
+ * this for anything reachable from an HTTP request.
+ */
+export function loadConnectorDevice(deviceId: string): ConnectorDevice | null {
+  const row = getDb()
+    .prepare(`SELECT id, user_id, device_type, status, auth_token, designated_folders FROM devices WHERE id = ?`)
+    .get(deviceId) as DeviceRow | undefined;
+  if (!row || row.status !== "trusted") return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    deviceType: row.device_type,
+    designatedFolders: row.designated_folders ? JSON.parse(row.designated_folders) : [],
+  };
+}
+
+/**
+ * Finds the single host device row (is_host_device = 1), creating it if this
+ * is the first time — owned by the Super Admin, a normal device_type
+ * 'computer' row like any other except it's never paired by a real remote
+ * connector (no auth_token needed; lib/core/connectors/hostScan.ts calls
+ * applySyncBatch directly, in-process). See
+ * File_Connector_Architecture.md's "Host Self-Scan" section.
+ */
+export function ensureHostDevice(): ConnectorDevice {
+  const db = getDb();
+  const existing = db.prepare(`SELECT id FROM devices WHERE is_host_device = 1 LIMIT 1`).get() as
+    | { id: string }
+    | undefined;
+  if (existing) return loadConnectorDevice(existing.id)!;
+
+  const superAdmin = db.prepare(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`).get() as
+    | { id: string }
+    | undefined;
+  if (!superAdmin) throw new Error("Cannot create the host device before a Super Admin account exists.");
+
+  const id = randomUUID();
+  db.prepare(
+    `INSERT INTO devices (id, user_id, device_type, device_name, added_by, designated_folders, is_host_device)
+     VALUES (?, ?, 'computer', 'This Computer (Host)', ?, NULL, 1)`
+  ).run(id, superAdmin.id, superAdmin.id);
+
+  return loadConnectorDevice(id)!;
+}
+
+export interface WatchedPath {
+  id: string;
+  folderType: FolderType;
+  path: string;
+  addedAt: string;
+  lastScanStatus: "ok" | "not_found" | null;
+  lastScanAt: string | null;
+}
+
+interface WatchedPathRow {
+  id: string;
+  folder_type: FolderType;
+  path: string;
+  added_at: string;
+  last_scan_status: "ok" | "not_found" | null;
+  last_scan_at: string | null;
+}
+
+function toWatchedPath(row: WatchedPathRow): WatchedPath {
+  return {
+    id: row.id,
+    folderType: row.folder_type,
+    path: row.path,
+    addedAt: row.added_at,
+    lastScanStatus: row.last_scan_status,
+    lastScanAt: row.last_scan_at,
+  };
+}
+
+/** All folder paths configured for a device, grouped by nothing in particular — callers group by folderType themselves. */
+export function getWatchedPaths(deviceId: string): WatchedPath[] {
+  return (
+    getDb()
+      .prepare(`SELECT * FROM device_watched_paths WHERE device_id = ? ORDER BY added_at`)
+      .all(deviceId) as WatchedPathRow[]
+  ).map(toWatchedPath);
+}
+
+/**
+ * Adds a watched path for a device, from the Admin dashboard. Also
+ * auto-enables that folder type on the device (adding a path obviously
+ * means wanting that type synced) and mints an auth_token if this is the
+ * first folder ever configured for the device — mirroring
+ * app/api/admin/devices/[id]/route.ts's existing designatedFolders PATCH
+ * behavior, since this is really the same "enable a connector" action, just
+ * entered as a path instead of a checkbox.
+ */
+export function addWatchedPath(deviceId: string, folderType: FolderType, path: string): WatchedPath {
+  const db = getDb();
+  const device = db
+    .prepare(`SELECT device_type, designated_folders, auth_token FROM devices WHERE id = ?`)
+    .get(deviceId) as { device_type: "computer" | "phone"; designated_folders: string | null; auth_token: string | null } | undefined;
+  if (!device) throw new Error("No such device.");
+
+  const current: FolderType[] = device.designated_folders ? JSON.parse(device.designated_folders) : [];
+  if (!current.includes(folderType)) {
+    const next = [...current, folderType];
+    const insert = db.transaction(() => {
+      db.prepare(`UPDATE devices SET designated_folders = ? WHERE id = ?`).run(JSON.stringify(next), deviceId);
+      if (!device.auth_token) {
+        db.prepare(`UPDATE devices SET auth_token = ? WHERE id = ?`).run(generateAuthToken(), deviceId);
+      }
+    });
+    insert();
+  }
+
+  const id = randomUUID();
+  db.prepare(`INSERT INTO device_watched_paths (id, device_id, folder_type, path) VALUES (?, ?, ?, ?)`).run(
+    id,
+    deviceId,
+    folderType,
+    path
+  );
+
+  return toWatchedPath(
+    db.prepare(`SELECT * FROM device_watched_paths WHERE id = ?`).get(id) as WatchedPathRow
+  );
+}
+
+/** Removes one watched path. Deliberately does NOT auto-disable the folder type even if this was the last path of that type — leaving it enabled with zero paths is a harmless, valid state, and the type checkbox already lets someone turn it off explicitly if they mean to. */
+export function removeWatchedPath(deviceId: string, pathId: string): void {
+  getDb().prepare(`DELETE FROM device_watched_paths WHERE id = ? AND device_id = ?`).run(pathId, deviceId);
+}
+
+/** Records whether a specific watched path actually resolved on the connector's (or host self-scan's) last attempt — the only way the host can know, since it can't see the remote filesystem itself. Matched by device_id + folder_type + path since a connector reports these by value, not by device_watched_paths.id. */
+export function recordFolderScanStatus(
+  deviceId: string,
+  folderType: FolderType,
+  path: string,
+  status: "ok" | "not_found"
+): void {
+  getDb()
+    .prepare(
+      `UPDATE device_watched_paths SET last_scan_status = ?, last_scan_at = datetime('now') WHERE device_id = ? AND folder_type = ? AND path = ?`
+    )
+    .run(status, deviceId, folderType, path);
+}
+
 export interface SyncItem {
   path: string; // full path on the device — the stable identity used for diffing
   filename: string;

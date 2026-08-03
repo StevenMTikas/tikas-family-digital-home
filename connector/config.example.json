@@ -4,7 +4,7 @@
   "deviceToken": "paste-the-token-shown-once-at-pairing-time",
   "designatedFolders": {
     "camera_photos": "C:\\Users\\YourName\\Pictures\\Camera Roll",
-    "documents": "C:\\Users\\YourName\\Downloads"
+    "documents": "C:\\Users\\YourName\\Documents"
   },
   "syncIntervalHours": 24,
   "pendingPollIntervalMinutes": 5

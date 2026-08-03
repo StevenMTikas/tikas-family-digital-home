@@ -53,6 +53,6 @@ export async function DELETE(req: NextRequest) {
   const actor = actorId ? await getAuthUser(actorId) : null;
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
-  revokeEmailAccount(actor.id);
+  await revokeEmailAccount(actor.id);
   return NextResponse.json({ revoked: true });
 }

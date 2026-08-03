@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser, hasAdminAuthorityOver, type AuthUser } from "@/lib/core/permissions";
+import { RECURRENCE_FREQUENCIES, topUpTaskSeries, taskRecurrenceWindowEnd, type RecurrenceFrequency } from "@/lib/core/recurrence";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -22,6 +23,8 @@ interface TaskRow {
   created_by: string;
   assigned_by: string;
   visibility: "public" | "private";
+  recurrence_id: string | null;
+  recurrence_frequency: RecurrenceFrequency | null;
 }
 
 // Edit rights deliberately do NOT use canManageUser here — its "self" clause
@@ -42,6 +45,8 @@ function toTaskResponse(row: TaskRow, actorId: string, actor: AuthUser) {
     status: row.status,
     assignedBy: row.assigned_by,
     visibility: row.visibility,
+    recurrenceId: row.recurrence_id,
+    recurrenceFrequency: row.recurrence_frequency,
     canEdit: canEditTask(actorId, actor, row),
     canComplete: actorId === row.owner_id || actorId === row.assigned_by || canManageUser(actor, row.owner_id),
   };
@@ -76,6 +81,7 @@ export async function POST(req: NextRequest) {
   const dueDate = typeof body?.dueDate === "string" ? body.dueDate : null;
   const visibility = body?.visibility === "private" ? "private" : "public";
   const ownerId = typeof body?.ownerId === "string" && body.ownerId ? body.ownerId : actorId;
+  const recurrenceFrequency = RECURRENCE_FREQUENCIES.includes(body?.recurrence) ? (body.recurrence as RecurrenceFrequency) : null;
 
   if (!title || !dueDate) {
     return errorResponse("INVALID_INPUT", "Title and due date are required.", 400);
@@ -83,17 +89,24 @@ export async function POST(req: NextRequest) {
 
   // Per Tasks.md: assigning to someone else is a role check (Admin/Super
   // Admin, "any other family member"), deliberately not scope-restricted —
-  // a different rule from who can later edit/complete the task.
-  if (ownerId !== actorId && actor.role === "basic_user") {
+  // a different rule from who can later edit/complete the task. Written as
+  // an allow-list, not a `!== "basic_user"` deny-list — a deny-list would
+  // silently let a 4th role (external_viewer) through unintended.
+  if (ownerId !== actorId && actor.role !== "admin" && actor.role !== "super_admin") {
     return errorResponse("FORBIDDEN", "Only an Admin or Super Admin can assign a task to someone else.", 403);
   }
 
   const db = getDb();
   const id = randomUUID();
+  const recurrenceId = recurrenceFrequency ? randomUUID() : null;
   db.prepare(
-    `INSERT INTO tasks (id, title, description, owner_id, due_date, status, created_by, assigned_by, visibility)
-     VALUES (?, ?, ?, ?, ?, 'not_done', ?, ?, ?)`
-  ).run(id, title, description, ownerId, dueDate, actorId, actorId, visibility);
+    `INSERT INTO tasks (id, title, description, owner_id, due_date, status, created_by, assigned_by, visibility, recurrence_id, recurrence_frequency)
+     VALUES (?, ?, ?, ?, ?, 'not_done', ?, ?, ?, ?, ?)`
+  ).run(id, title, description, ownerId, dueDate, actorId, actorId, visibility, recurrenceId, recurrenceFrequency);
+
+  // Populate the rolling window of future occurrences right away, rather
+  // than making the user wait for the next hourly scheduler tick.
+  if (recurrenceId) topUpTaskSeries(recurrenceId, taskRecurrenceWindowEnd());
 
   const row = db.prepare(`SELECT * FROM tasks WHERE id = ?`).get(id) as TaskRow;
   return NextResponse.json(toTaskResponse(row, actorId, actor), { status: 201 });

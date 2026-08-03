@@ -36,6 +36,23 @@ export async function getPushSubscriptionStatus(): Promise<"unsupported" | "deni
   return existing ? "subscribed" : "not-subscribed";
 }
 
+/** One-line, human-readable detail on *why* getPushSubscriptionStatus landed where it did — for on-screen diagnosis when a device's result is unexpected and devtools aren't reachable. */
+export async function getPushDiagnosticDetail(): Promise<string> {
+  const hasSW = "serviceWorker" in navigator;
+  const hasPM = "PushManager" in window;
+  if (!hasSW || !hasPM) {
+    return `serviceWorker: ${hasSW ? "yes" : "no"}, PushManager: ${hasPM ? "yes" : "no"}, secure context: ${window.isSecureContext ? "yes" : "no"}, UA: ${navigator.userAgent}`;
+  }
+  try {
+    const permission = Notification.permission;
+    const registration = await navigator.serviceWorker.ready;
+    const existing = await registration.pushManager.getSubscription();
+    return `permission: ${permission}, sw scope: ${registration.scope}, existing subscription: ${existing ? "yes" : "no"}`;
+  } catch (err) {
+    return `threw while checking: ${err instanceof Error ? err.message : String(err)}`;
+  }
+}
+
 /** Requests permission (if needed) and subscribes this browser, registering it with the host. */
 export async function subscribeToPush(vapidPublicKey: string): Promise<void> {
   if (!("serviceWorker" in navigator) || !("PushManager" in window)) {

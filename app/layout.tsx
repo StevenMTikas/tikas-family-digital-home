@@ -58,11 +58,21 @@ export default async function RootLayout({
         | undefined)
     : undefined;
 
+  // external_viewer accounts (2026-08) get their own minimal chrome
+  // (app/family-view/layout.tsx) instead — never the family NavShell,
+  // AssistantBubble, or NotificationsCenter, all of which assume a
+  // household member. This is the actual fix for the gap where an
+  // external_viewer hitting a normal page would otherwise see the full
+  // family nav shell — it has to live here since the root layout owns the
+  // <body> wrapper decision for every route. See
+  // Security_Architecture.md's External Viewer section.
+  const isExternalViewer = navUser?.role === "external_viewer";
+
   return (
     <html lang="en" className={`${fraunces.variable} ${publicSans.variable}`}>
       <body className="bg-base text-ink font-body">
         <PwaRegistration />
-        {navUser ? (
+        {navUser && !isExternalViewer ? (
           <>
             <NavShell fullName={navUser.full_name} photo={navUser.photo} isSuperAdmin={navUser.role === "super_admin"} />
             <div className="md:pl-56 pt-14 pb-16 md:pb-0">{children}</div>
@@ -70,8 +80,8 @@ export default async function RootLayout({
         ) : (
           children
         )}
-        {showNotifications && <NotificationsCenter />}
-        {showAssistant && <AssistantBubble />}
+        {showNotifications && !isExternalViewer && <NotificationsCenter />}
+        {showAssistant && !isExternalViewer && <AssistantBubble />}
       </body>
     </html>
   );

@@ -35,10 +35,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const content = typeof body?.content === "string" ? body.content.trim() : "";
   if (!content) return errorResponse("INVALID_INPUT", "Message content is required.", 400);
 
-  db.prepare(`INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, 'user', ?)`).run(
+  // created_at is set explicitly (not left to the schema's datetime('now')
+  // default) to match the ISO format every assistant-reply INSERT already
+  // uses (lib/core/ai/index.ts, the escalate route) — mixing formats on
+  // this TEXT column is a real bug, not just a style nit: 'datetime(now)'
+  // produces "2026-08-01 05:37:01" (space-separated), toISOString()
+  // produces "2026-08-01T05:36:46.767Z". Lexicographic ORDER BY created_at
+  // then sorts by the separator character first (' ' < 'T' in ASCII), so a
+  // user message can sort *before* an assistant reply that actually
+  // preceded it by seconds — scrambling both the model's own conversation
+  // history and the chat UI's message order (root cause of a real user
+  // report: "the assistant doesn't see previous chats... the question I'm
+  // asking disappears", 2026-08-01).
+  db.prepare(`INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)`).run(
     randomUUID(),
     id,
-    content
+    content,
+    new Date().toISOString()
   );
 
   // Auto-generate the conversation title from its first message — Assistant.md
@@ -57,6 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           controller.enqueue(encoder.encode(chunk));
         }
       } catch (err) {
+        console.error("[assistant] Failed to stream reply:", err);
         controller.enqueue(encoder.encode("\n\n[The Assistant hit an error responding. Please try again.]"));
       } finally {
         controller.close();

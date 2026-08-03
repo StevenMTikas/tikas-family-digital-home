@@ -11,13 +11,14 @@
 // for it for now, per Milestones.md's own expectation that Content works
 // "even before any AI is wired in."
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEscapeKey } from "@/lib/hooks/useEscapeKey";
 import {
   getDocuments,
   uploadDocument,
   setDocumentSensitivity,
+  setDocumentCategory,
   deleteDocument,
   excludeDocument,
   documentDownloadUrl,
@@ -25,6 +26,7 @@ import {
   DocumentsApiError,
   type DocumentItem,
 } from "@/lib/api/documents";
+import { getDocumentCategories, type DocumentCategory } from "@/lib/api/document-categories";
 import {
   uploadPhoto,
   deletePhoto,
@@ -91,6 +93,7 @@ export default function ContentPageClient({
   passwords,
   familyMembers,
   currentUserId,
+  isSuperAdmin,
 }: {
   documents: DocumentData[];
   photos: PhotoData[];
@@ -99,6 +102,7 @@ export default function ContentPageClient({
   passwords: PasswordEntryData[];
   familyMembers: FamilyMemberOption[];
   currentUserId: string;
+  isSuperAdmin: boolean;
 }) {
   // Lets a Search result (Search.md: "navigates to that item's detail view
   // in its home module") land on the right tab — read once on initial mount,
@@ -120,7 +124,14 @@ export default function ContentPageClient({
       </div>
 
       <div className="mt-7">
-        {tab === "documents" && <DocumentsTab documents={documents} familyMembers={familyMembers} />}
+        {tab === "documents" && (
+          <DocumentsTab
+            documents={documents}
+            familyMembers={familyMembers}
+            isSuperAdmin={isSuperAdmin}
+            currentUserId={currentUserId}
+          />
+        )}
         {tab === "photos" && <PhotosTab photos={photos} />}
         {tab === "memory" && (
           <MemoryTab
@@ -142,13 +153,28 @@ export default function ContentPageClient({
 function DocumentsTab({
   documents,
   familyMembers,
+  isSuperAdmin,
+  currentUserId,
 }: {
   documents: DocumentData[];
   familyMembers: FamilyMemberOption[];
+  isSuperAdmin: boolean;
+  currentUserId: string;
 }) {
   const router = useRouter();
   const [showUpload, setShowUpload] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Lets Accepting a document-categorization AI Suggestion (Dashboard) land
+  // straight on that document with the suggested category pre-filled,
+  // instead of the user hunting for it manually — read once on mount, same
+  // pattern as the tab param above.
+  const params = useSearchParams();
+  const editId = params.get("edit");
+  const suggestedCategory = params.get("suggestedCategory");
+  const [editingDoc, setEditingDoc] = useState<DocumentData | null>(
+    editId ? documents.find((d) => d.id === editId) ?? null : null
+  );
 
   async function handleToggleSensitive(doc: DocumentData) {
     setError(null);
@@ -225,16 +251,26 @@ function DocumentsTab({
               {doc.category && (
                 <div className="text-[11px] text-ink-muted bg-base px-2.5 py-1 rounded-full">{doc.category}</div>
               )}
-              <button
-                type="button"
-                onClick={() => handleToggleSensitive(doc)}
-                className={`text-[11px] px-2 py-1 rounded-full ${
-                  doc.isSensitive ? "text-trust bg-trust/[0.12]" : "text-ink-muted"
-                }`}
-                title="Toggle sensitivity (Super Admin only)"
-              >
-                {doc.isSensitive ? "Sensitive" : "Mark sensitive"}
+              <button type="button" onClick={() => setEditingDoc(doc)} className="text-[11px] text-ink-muted underline">
+                Edit
               </button>
+              {/* Super Admin can flip sensitivity on any document from right
+                  here. Everyone else's only path to it is the Edit modal, and
+                  only for documents they uploaded — see EditDocumentModal. */}
+              {isSuperAdmin && (
+                <button
+                  type="button"
+                  onClick={() => handleToggleSensitive(doc)}
+                  className={`text-[11px] px-2 py-1 rounded-full ${
+                    doc.isSensitive ? "text-trust bg-trust/[0.12]" : "text-ink-muted"
+                  }`}
+                >
+                  {doc.isSensitive ? "Sensitive" : "Mark sensitive"}
+                </button>
+              )}
+              {!isSuperAdmin && doc.isSensitive && (
+                <span className="text-[11px] px-2 py-1 rounded-full text-trust bg-trust/[0.12]">Sensitive</span>
+              )}
               {doc.syncStatus === "metadata_only" ? (
                 doc.fileRequestedAt ? (
                   <span className="text-[11.5px] text-ink-muted w-32 text-right" title="Will arrive when the source device's connector next checks in">
@@ -280,6 +316,183 @@ function DocumentsTab({
       )}
 
       {showUpload && <UploadDocumentModal onClose={() => setShowUpload(false)} onSaved={() => { setShowUpload(false); router.refresh(); }} />}
+
+      {editingDoc && (
+        <EditDocumentModal
+          doc={editingDoc}
+          initialCategory={editingDoc.id === editId && suggestedCategory ? suggestedCategory : editingDoc.category ?? ""}
+          isSuperAdmin={isSuperAdmin}
+          currentUserId={currentUserId}
+          onClose={() => setEditingDoc(null)}
+          onSaved={() => {
+            setEditingDoc(null);
+            router.refresh();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditDocumentModal({
+  doc,
+  initialCategory,
+  isSuperAdmin,
+  currentUserId,
+  onClose,
+  onSaved,
+}: {
+  doc: DocumentData;
+  initialCategory: string;
+  isSuperAdmin: boolean;
+  currentUserId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  useEscapeKey(true, onClose);
+  // "" = no category, "__new__" = the free-text box below is the source of
+  // truth, otherwise one of `categories`' names. Picking from the list
+  // avoids retyping (and mistyping) a category that already exists —
+  // existing categories are only known once fetched, so a category this
+  // document already has that isn't in the list yet (fetch not done, or a
+  // brand-new Advisor-suggested name never saved before) falls back to the
+  // free-text box, pre-filled, rather than silently losing it.
+  const [categories, setCategories] = useState<DocumentCategory[]>([]);
+  const [loadingCategories, setLoadingCategories] = useState(true);
+  const [selected, setSelected] = useState<string>(initialCategory ? "__new__" : "");
+  const [newCategoryText, setNewCategoryText] = useState(initialCategory);
+  // Super Admin can change sensitivity on any document, from here or the
+  // Documents list's toggle. Everyone else only gets this one path, and only
+  // for a document they uploaded themselves — the list's own toggle stays
+  // Super-Admin-only (Documents.md), so this is the sole place an ordinary
+  // family member can flag their own upload sensitive after the fact.
+  const canEditSensitivity = isSuperAdmin || doc.uploadedBy === currentUserId;
+  const [isSensitive, setIsSensitive] = useState(doc.isSensitive);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDocumentCategories()
+      .then((cats) => {
+        if (cancelled) return;
+        setCategories(cats);
+        if (initialCategory) {
+          const match = cats.find((c) => c.name === initialCategory);
+          if (match) setSelected(match.name);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setLoadingCategories(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSave() {
+    if (selected === "__new__" && !newCategoryText.trim()) {
+      setError("Enter a category name, or choose one from the list.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const category = selected === "__new__" ? newCategoryText.trim() : selected;
+      await setDocumentCategory(doc.id, category || null);
+      if (canEditSensitivity && isSensitive !== doc.isSensitive) {
+        await setDocumentSensitivity(doc.id, isSensitive);
+      }
+      onSaved();
+    } catch (err) {
+      setError(err instanceof DocumentsApiError ? err.message : "Something went wrong.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-ink/[0.35] flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-surface rounded-2xl p-8 w-[440px] shadow-[0_24px_60px_rgba(58,52,44,0.25)]" onClick={(e) => e.stopPropagation()}>
+        <div className="font-display text-lg font-semibold text-ink">Edit Document</div>
+        <div className="text-[13px] text-ink-muted mt-1 truncate">{doc.title}</div>
+        <div className="mt-5">
+          <label className="block text-xs font-semibold text-ink mb-1.5">Category</label>
+          {loadingCategories ? (
+            <p className="text-xs text-ink-muted">Loading categories…</p>
+          ) : (
+            <div className="flex flex-col gap-2 max-h-[180px] overflow-y-auto pr-1">
+              <label className="flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+                <input
+                  type="radio"
+                  name="category"
+                  checked={selected === ""}
+                  onChange={() => setSelected("")}
+                  className="accent-accent-strong"
+                />
+                No category
+              </label>
+              {categories.map((c) => (
+                <label key={c.id} className="flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+                  <input
+                    type="radio"
+                    name="category"
+                    checked={selected === c.name}
+                    onChange={() => setSelected(c.name)}
+                    className="accent-accent-strong"
+                  />
+                  {c.name}
+                </label>
+              ))}
+              <label className="flex items-center gap-2 text-[13px] text-ink cursor-pointer">
+                <input
+                  type="radio"
+                  name="category"
+                  checked={selected === "__new__"}
+                  onChange={() => setSelected("__new__")}
+                  className="accent-accent-strong"
+                />
+                + New category
+              </label>
+            </div>
+          )}
+          {selected === "__new__" && (
+            <input
+              type="text"
+              value={newCategoryText}
+              onChange={(e) => setNewCategoryText(e.target.value)}
+              placeholder="e.g. tax, medical, school"
+              autoFocus
+              className="w-full mt-2 px-3 py-2.5 rounded-xl border border-ink/15 text-[13.5px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+            />
+          )}
+        </div>
+        {canEditSensitivity && (
+          <label className="flex items-center gap-2 text-[13px] text-ink mt-4 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isSensitive}
+              onChange={(e) => setIsSensitive(e.target.checked)}
+              className="accent-accent-strong"
+            />
+            Sensitive
+          </label>
+        )}
+        {error && <p className="text-xs text-urgent mt-3">{error}</p>}
+        <div className="flex items-center justify-end gap-3 mt-6">
+          <button type="button" onClick={onClose} className="text-[13px] text-ink-muted">Cancel</button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-70"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

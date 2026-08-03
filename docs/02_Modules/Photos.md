@@ -21,7 +21,7 @@ Defines the Photos module — upload, AI-prompted tagging, visibility, and sensi
 
 - **AI-prompted tagging at upload.** When a photo is uploaded, the AI prompts the uploader — *"Who is in this picture?" / "Where was it taken?" / "What event is this from?"* — populating tags, location, and event linkage (per `Data_Model.md`'s existing description of this behavior).
 - **Public by default, private by choice.** A photo is visible to the whole family by default, same pattern as Calendar and Tasks — the uploader can mark a specific photo private if they don't want it shown to others.
-- **No folder requirement.** Unlike Documents, Photos don't require folder placement — visibility is governed directly by the public/private setting on the photo itself, not by a folder permission structure.
+- **No folder requirement for internal family visibility.** Unlike Documents, Photos don't require folder placement for the family's own use — visibility among family members is governed directly by the public/private setting on the photo itself, not by a folder permission structure. *(2026-08 addition: every photo is still auto-filed, invisibly to the uploader, into one internal default "Family Photos" folder — this exists solely so a Super Admin can grant an External Viewer access via the existing Folder Permissions system, per `Authorization.md`'s External Viewer role. It has no effect on internal visibility rules, which remain exactly as described above.)*
 - **Sensitivity flag.** Photos support the same `is_sensitive` flag used by Documents and Family Knowledge Items, for cases where it's relevant (e.g., a medical-related photo) — subject to the same outside-transmission gate rules in `AI_Permissions.md`.
 - **Hashtag-style tags power later search.** Tags applied at upload (people, event, other descriptors) are what later enable queries like "show me all church outreach pictures" or "find every photo with Malachi" — actual search behavior lives in `Search.md`, not duplicated here.
 
@@ -50,7 +50,7 @@ Extends the existing **Photo** entity (`Data_Model.md`) with:
 
 ## Permissions
 
-- **View:** all family members can view public photos by default; private photos are visible only to the uploader and admins.
+- **View:** all family members can view public photos by default; private photos are visible only to the uploader and admins. An External Viewer (`Authorization.md`) sees only public, non-sensitive photos in a folder a Super Admin has explicitly granted them — sensitive photos are always excluded for this role regardless of folder grant, a conservative default for content leaving the home network. See `lib/photos/visibility.ts`.
 - **Upload:** any family member.
 - **Sensitivity override:** Super Admin only, consistent with `Documents.md`'s pattern.
 - **Delete:** requires the `delete_content` permission (per `Authorization.md`), same as any other content type.

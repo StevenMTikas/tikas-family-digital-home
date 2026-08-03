@@ -20,10 +20,11 @@ import { ollamaChat } from "./ollama";
 import { getModelForRole, logAiInteraction } from "./index";
 import { getBaseLayerPrompt } from "./base-layer";
 import { GUARDIAN_ROLE_PROMPT } from "./roles";
+import { getLastAgentRunAt } from "./scheduler";
 import { getLastBackup } from "@/lib/core/backup";
 import { createNotification } from "@/lib/core/notifications";
 
-export type GuardianChannel = "passive" | "urgent" | "advisor";
+export type GuardianChannel = "passive" | "urgent" | "advisor" | "safety";
 
 export interface GuardianFinding {
   rawFinding: string;
@@ -117,8 +118,81 @@ function checkInactiveAccounts(now: Date): GuardianFinding[] {
   return findings;
 }
 
-export function detectGuardianFindings(now: Date = new Date()): GuardianFinding[] {
-  return [...checkDiskSpace(), ...checkStaleDevices(now), ...checkFailedLogins(now), ...checkInactiveAccounts(now)];
+// Narrow, explicit, low-recall-by-design keyword buckets — a missed real
+// concern is preferable here to broad content-scanning of private
+// conversations. Per explicit user direction (2026-08-01): reuse Guardian's
+// existing fact-only, scheduled-check pattern (not real-time surveillance),
+// and never quote the actual private message text in what gets sent out —
+// only that a category matched, so a parent can go check in personally.
+const SAFETY_KEYWORD_BUCKETS: { category: string; keywords: string[] }[] = [
+  {
+    category: "self-harm",
+    keywords: ["kill myself", "want to die", "end my life", "suicide", "hurt myself", "self-harm", "self harm"],
+  },
+  {
+    category: "abuse",
+    keywords: ["hitting me", "hits me", "being abused", "abusing me", "not safe at home", "afraid of him", "afraid of her"],
+  },
+  {
+    category: "danger",
+    keywords: ["in danger", "someone is following me", "i'm scared of", "im scared of", "threatened me"],
+  },
+];
+
+function findSafetyCategory(content: string): string | null {
+  const lower = content.toLowerCase();
+  for (const bucket of SAFETY_KEYWORD_BUCKETS) {
+    if (bucket.keywords.some((keyword) => lower.includes(keyword))) return bucket.category;
+  }
+  return null;
+}
+
+interface SafetyMessageRow {
+  user_id: string;
+  full_name: string;
+  content: string;
+}
+
+function checkConversationSafetySignals(sinceIso: string): GuardianFinding[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT c.user_id as user_id, u.full_name as full_name, m.content as content
+       FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       JOIN users u ON u.id = c.user_id
+       WHERE m.role = 'user' AND m.created_at > ?`
+    )
+    .all(sinceIso) as SafetyMessageRow[];
+
+  // One finding per (user, category) per run, not one per matching message —
+  // an ongoing concern shouldn't spam duplicate alerts within one window.
+  const seen = new Set<string>();
+  const findings: GuardianFinding[] = [];
+
+  for (const row of rows) {
+    const category = findSafetyCategory(row.content);
+    if (!category) continue;
+    const key = `${row.user_id}:${category}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    findings.push({
+      rawFinding: `${row.full_name}'s recent Assistant conversation included language that may relate to ${category}. A parent may want to check in.`,
+      channel: "safety",
+      targetUserId: row.user_id,
+    });
+  }
+  return findings;
+}
+
+export function detectGuardianFindings(now: Date = new Date(), since?: string): GuardianFinding[] {
+  const safetyWindowStart = since ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+  return [
+    ...checkDiskSpace(),
+    ...checkStaleDevices(now),
+    ...checkFailedLogins(now),
+    ...checkInactiveAccounts(now),
+    ...checkConversationSafetySignals(safetyWindowStart),
+  ];
 }
 
 async function phraseFinding(finding: GuardianFinding): Promise<string> {
@@ -136,6 +210,34 @@ function getSuperAdminId(): string | null {
     | { id: string }
     | undefined;
   return row?.id ?? null;
+}
+
+interface AdminRow {
+  id: string;
+  admin_scope: string | null;
+  view_child_activity_logs: number;
+}
+
+/**
+ * Who a safety finding about `targetUserId` should notify: the Super Admin
+ * always, plus any Admin scoped to that user who's also individually been
+ * granted "View Child Activity Logs" (Authorization.md) — reusing that
+ * existing, previously-unwired permission as the gate, rather than making
+ * bare admin_scope membership sufficient on its own.
+ */
+function getSafetyNotifyTargets(targetUserId: string): string[] {
+  const superAdminId = getSuperAdminId();
+  const admins = getDb()
+    .prepare(`SELECT id, admin_scope, view_child_activity_logs FROM users WHERE role = 'admin'`)
+    .all() as AdminRow[];
+
+  const targets = new Set<string>();
+  if (superAdminId) targets.add(superAdminId);
+  for (const admin of admins) {
+    const scope: string[] = admin.admin_scope ? JSON.parse(admin.admin_scope) : [];
+    if (admin.view_child_activity_logs && scope.includes(targetUserId)) targets.add(admin.id);
+  }
+  return [...targets];
 }
 
 export interface SystemHealthSnapshot {
@@ -196,14 +298,19 @@ export async function getLatestHealthSnapshot(): Promise<{ checkedAt: string | n
  * for the Super Admin — the Admin Dashboard (Phase 4) will read from the
  * same table once built. Advisor handoffs become AI_Suggestion rows.
  */
-export async function runGuardianCheck(): Promise<{ passive: number; urgent: number; advisorHandoffs: number }> {
-  const findings = detectGuardianFindings();
+export async function runGuardianCheck(): Promise<{ passive: number; urgent: number; advisorHandoffs: number; safety: number }> {
+  // Safety findings only scan messages since Guardian's own last run (or the
+  // last 24h if it's never run) — otherwise the same already-flagged
+  // conversation would generate a fresh alert on every single daily tick.
+  const since = getLastAgentRunAt("guardian") ?? undefined;
+  const findings = detectGuardianFindings(new Date(), since);
   const superAdminId = getSuperAdminId();
   const db = getDb();
 
   let passive = 0;
   let urgent = 0;
   let advisorHandoffs = 0;
+  let safety = 0;
 
   for (const finding of findings) {
     const text = await phraseFinding(finding);
@@ -217,6 +324,14 @@ export async function runGuardianCheck(): Promise<{ passive: number; urgent: num
       continue;
     }
 
+    if (finding.channel === "safety" && finding.targetUserId) {
+      for (const targetId of getSafetyNotifyTargets(finding.targetUserId)) {
+        await createNotification({ userId: targetId, text, severity: "urgent" });
+      }
+      safety += 1;
+      continue;
+    }
+
     if (!superAdminId) continue;
     await createNotification({ userId: superAdminId, text, severity: finding.channel === "urgent" ? "urgent" : "routine" });
     if (finding.channel === "urgent") urgent += 1;
@@ -227,6 +342,6 @@ export async function runGuardianCheck(): Promise<{ passive: number; urgent: num
 
   // Guardian has no requesting user (AI_Permissions.md: "not tied to a
   // requesting user") — empty string stores NULL, same reasoning as Advisor's log above.
-  await logAiInteraction("guardian", "", { findingsCount: findings.length, passive, urgent, advisorHandoffs, health });
-  return { passive, urgent, advisorHandoffs };
+  await logAiInteraction("guardian", "", { findingsCount: findings.length, passive, urgent, advisorHandoffs, safety, health });
+  return { passive, urgent, advisorHandoffs, safety };
 }

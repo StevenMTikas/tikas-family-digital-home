@@ -6,10 +6,17 @@
 // chrome shown in that mockup isn't built yet (Navigation.md's shell is
 // Phase 7), so this renders as a standalone page like the other module stubs.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { updateMyProfile, createUser, UsersApiError, type NewUserInput } from "@/lib/api/users";
+import {
+  getDocumentCategories,
+  renameDocumentCategory,
+  deleteDocumentCategory,
+  DocumentCategoriesApiError,
+  type DocumentCategory,
+} from "@/lib/api/document-categories";
 
 export interface CurrentUser {
   id: string;
@@ -43,6 +50,11 @@ const ROLE_LABELS: Record<string, string> = {
   super_admin: "Super Admin",
   admin: "Admin",
   basic_user: "Basic User",
+  // Not created through this screen's Add User form (see the External
+  // Viewers tab in Administration) — kept here only so this label displays
+  // gracefully if an external_viewer row is ever surfaced in a list that
+  // uses roleLabel().
+  external_viewer: "External Viewer",
 };
 
 function roleLabel(role: string): string {
@@ -53,7 +65,7 @@ function initials(fullName: string): string {
   return fullName.trim().charAt(0).toUpperCase() || "?";
 }
 
-type Tab = "profile" | "devices" | "family" | "add";
+type Tab = "profile" | "devices" | "family" | "connections" | "add";
 
 function TabButton({
   label,
@@ -99,6 +111,7 @@ export default function UsersPageClient({
         <TabButton label="My Profile" active={tab === "profile"} onClick={() => setTab("profile")} />
         <TabButton label="My Devices" active={tab === "devices"} onClick={() => setTab("devices")} />
         <TabButton label="Family Members" active={tab === "family"} onClick={() => setTab("family")} />
+        <TabButton label="Add Connection" active={tab === "connections"} onClick={() => setTab("connections")} />
         {isSuperAdmin && (
           <TabButton label="Add User" active={tab === "add"} onClick={() => setTab("add")} />
         )}
@@ -106,10 +119,11 @@ export default function UsersPageClient({
 
       <div className="mt-7">
         {tab === "profile" && (
-          <MyProfileTab currentUser={currentUser} onSaved={() => router.refresh()} />
+          <MyProfileTab currentUser={currentUser} onSaved={() => router.refresh()} isSuperAdmin={isSuperAdmin} />
         )}
         {tab === "devices" && <MyDevicesTab devices={devices} />}
         {tab === "family" && <FamilyMembersTab members={familyMembers} />}
+        {tab === "connections" && <AddConnectionsTab />}
         {tab === "add" && isSuperAdmin && <AddUserTab onCreated={() => router.refresh()} />}
       </div>
     </main>
@@ -119,9 +133,11 @@ export default function UsersPageClient({
 function MyProfileTab({
   currentUser,
   onSaved,
+  isSuperAdmin,
 }: {
   currentUser: CurrentUser;
   onSaved: () => void;
+  isSuperAdmin: boolean;
 }) {
   const [fullName, setFullName] = useState(currentUser.fullName);
   const [contactInfo, setContactInfo] = useState(currentUser.contactInfo ?? "");
@@ -232,9 +248,144 @@ function MyProfileTab({
         </div>
       </div>
     </div>
+
+      <DocumentCategoriesSection isSuperAdmin={isSuperAdmin} />
+
       <Link href="/ai-settings" className="inline-block mt-4 text-[13px] font-semibold text-accent-strong">
         AI Settings — conversation history, what the AI knows about you, suggestions →
       </Link>
+    </div>
+  );
+}
+
+function DocumentCategoriesSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const [categories, setCategories] = useState<DocumentCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setCategories(await getDocumentCategories());
+    } catch (err) {
+      setError(err instanceof DocumentCategoriesApiError ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleRename(id: string) {
+    if (!editValue.trim()) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await renameDocumentCategory(id, editValue.trim());
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof DocumentCategoriesApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(cat: DocumentCategory) {
+    if (!confirm(`Delete the "${cat.name}" category?`)) return;
+    setBusyId(cat.id);
+    setError(null);
+    try {
+      await deleteDocumentCategory(cat.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof DocumentCategoriesApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="bg-surface rounded-2xl p-7 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mt-5 max-w-[720px]">
+      <div className="text-xs font-semibold tracking-wide text-ink-muted uppercase mb-1">Document Categories</div>
+      <p className="text-[11.5px] text-ink-muted mb-4">
+        {isSuperAdmin
+          ? "Rename or delete a category. Renaming updates every document that uses it; deleting is blocked while any document still does."
+          : "Categories currently used across the family's documents. Only the Super Admin can rename or delete one."}
+      </p>
+      {error && <p className="text-xs text-urgent mb-3">{error}</p>}
+      {loading ? (
+        <p className="text-xs text-ink-muted">Loading…</p>
+      ) : categories.length === 0 ? (
+        <p className="text-xs text-ink-muted">No categories yet.</p>
+      ) : (
+        <div className="flex flex-col">
+          {categories.map((cat, i) => (
+            <div
+              key={cat.id}
+              className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-ink/[0.07]" : ""}`}
+            >
+              {editingId === cat.id ? (
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  autoFocus
+                  className="flex-1 px-3 py-1.5 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              ) : (
+                <div className="flex-1 text-[13px] text-ink">{cat.name}</div>
+              )}
+              <div className="text-[11px] text-ink-muted w-28 text-right">
+                {cat.documentCount} document{cat.documentCount === 1 ? "" : "s"}
+              </div>
+              {isSuperAdmin &&
+                (editingId === cat.id ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleRename(cat.id)}
+                      disabled={busyId === cat.id}
+                      className="text-[11px] font-semibold text-accent-strong disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)} className="text-[11px] text-ink-muted">
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(cat.id);
+                        setEditValue(cat.name);
+                        setError(null);
+                      }}
+                      className="text-[11px] text-ink-muted underline"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(cat)}
+                      disabled={busyId === cat.id}
+                      className="text-[11px] text-urgent disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
+                  </>
+                ))}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -291,6 +442,34 @@ function FamilyMembersTab({ members }: { members: FamilyMember[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// A "way to get to the e-mail linking page" (Email.md's /email had no link
+// anywhere in the app before this, 2026-08-02) — a single static card for
+// now, not a generalized "connections list," since there's only one
+// connection type today. Trivial to extend later (Future_Ideas.md already
+// anticipates Drive/Dropbox connectors) without over-building this now.
+function AddConnectionsTab() {
+  return (
+    <div className="max-w-[640px]">
+      <p className="text-xs text-ink-muted mb-4">
+        Connect an outside account for a live summary in the app. Connecting your own account is itself the
+        consent — available to any family member, including a minor.
+      </p>
+      <Link
+        href="/email"
+        className="bg-surface rounded-2xl p-5 shadow-[0_8px_20px_rgba(58,52,44,0.05)] flex items-center justify-between"
+      >
+        <div>
+          <div className="text-[13.5px] text-ink font-medium">Email</div>
+          <div className="text-xs text-ink-muted mt-0.5">
+            Unread &amp; important-message summary — Gmail via Google sign-in, or IMAP + app password for any provider.
+          </div>
+        </div>
+        <span className="text-accent-strong text-sm">Connect →</span>
+      </Link>
     </div>
   );
 }

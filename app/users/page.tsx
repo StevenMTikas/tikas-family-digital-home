@@ -70,7 +70,7 @@ export default async function UsersPage() {
   }));
 
   const memberRows = db
-    .prepare(`SELECT id, full_name, photo, relationship, hobbies_interests, role FROM users`)
+    .prepare(`SELECT id, full_name, photo, relationship, hobbies_interests, role FROM users WHERE role != 'external_viewer'`)
     .all() as Pick<UserRow, "id" | "full_name" | "photo" | "relationship" | "hobbies_interests" | "role">[];
 
   const familyMembers: FamilyMember[] = memberRows.map((row) => ({

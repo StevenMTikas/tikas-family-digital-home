@@ -92,14 +92,97 @@ function hasActiveSuggestion(module: string, relatedEntityId: string): boolean {
   return !!row;
 }
 
-async function phraseFinding(finding: Finding): Promise<string> {
+interface PhrasedFinding {
+  content: string;
+  suggestedValue: string | null;
+}
+
+const SUGGESTED_CATEGORY_LINE = /\n?CATEGORY:\s*(.+)\s*$/i;
+
+/**
+ * For a documents-module finding, asks the LLM to commit to ONE specific
+ * category (not just describe the situation in prose) so "Accept" has a
+ * single unambiguous value to pre-fill — content alone can't be parsed
+ * reliably for this (the model sometimes phrases a sentence offering
+ * several options, e.g. "'Work' or 'Financial Documents'"). Reusing an
+ * existing category when one fits keeps the household's category list from
+ * sprawling into near-duplicates ("Finances" vs "Financial" vs "Finance").
+ */
+function categoryInstruction(): string {
+  const existing = (
+    getDb().prepare(`SELECT DISTINCT category FROM documents WHERE category IS NOT NULL ORDER BY category`).all() as {
+      category: string;
+    }[]
+  ).map((r) => r.category);
+
+  const reuseHint =
+    existing.length > 0
+      ? `Categories already in use in this household: ${existing.join(", ")}. Reuse one of these if it genuinely fits, rather than inventing a near-duplicate.`
+      : "";
+
+  return [
+    "When suggesting a document category, commit to exactly ONE specific category — never offer a choice between multiple options.",
+    reuseHint,
+    "End your reply on its own new line with exactly: CATEGORY: <the one category name>",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Backfills a single missing suggested_value for a documents-module
+ * suggestion, on demand — for a suggestion generated before phraseFinding
+ * started capturing this (e.g. any of the ~2,500 already active when this
+ * was added, 2026-07-30). Called lazily from the Accept endpoint rather
+ * than as a one-time bulk migration: touching only the specific suggestion
+ * someone actually clicks Accept on is a single LLM call instead of hours
+ * spent re-processing suggestions nobody may ever act on.
+ *
+ * Extracts from the suggestion's *existing* content rather than generating
+ * a fresh independent guess — a second, unrelated LLM call can land on a
+ * different category than the one the user already read in the suggestion
+ * text (confirmed live: re-guessing produced "Financials" for a document
+ * whose displayed suggestion said "School"). Reconciling with what was
+ * already shown keeps Accept's pre-fill matching what the user actually read.
+ */
+export async function suggestCategoryForDocument(existingContent: string): Promise<string | null> {
   const model = getModelForRole("advisor");
   const messages = [
-    { role: "system" as const, content: [getBaseLayerPrompt(), "", ADVISOR_ROLE_PROMPT].join("\n") },
+    {
+      role: "system" as const,
+      content: [
+        getBaseLayerPrompt(),
+        "",
+        "You previously wrote a suggestion recommending a family member categorize a document a certain way. Identify the ONE specific category that suggestion recommends — do not invent a new guess, extract exactly what was already recommended.",
+        "End your reply on its own new line with exactly: CATEGORY: <the one category name>",
+      ].join("\n"),
+    },
+    { role: "user" as const, content: existingContent },
+  ];
+  const reply = await ollamaChat(model, messages);
+  const match = reply.content.trim().match(SUGGESTED_CATEGORY_LINE);
+  return match ? match[1]!.trim().replace(/^["']|["']$/g, "") : null;
+}
+
+async function phraseFinding(finding: Finding): Promise<PhrasedFinding> {
+  const model = getModelForRole("advisor");
+  const systemParts = [getBaseLayerPrompt(), "", ADVISOR_ROLE_PROMPT];
+  if (finding.module === "documents") systemParts.push("", categoryInstruction());
+
+  const messages = [
+    { role: "system" as const, content: systemParts.join("\n") },
     { role: "user" as const, content: finding.rawFinding },
   ];
   const reply = await ollamaChat(model, messages);
-  return reply.content.trim();
+  const raw = reply.content.trim();
+
+  const match = raw.match(SUGGESTED_CATEGORY_LINE);
+  if (!match) return { content: raw, suggestedValue: null };
+
+  return {
+    content: raw.slice(0, match.index).trim(),
+    suggestedValue: match[1]!.trim().replace(/^["']|["']$/g, ""),
+  };
 }
 
 /**
@@ -114,12 +197,21 @@ export async function runAdvisorDetectors(triggerType: "event" | "weekly_check")
 
   let created = 0;
   for (const finding of findings) {
-    const content = await phraseFinding(finding);
+    const { content, suggestedValue } = await phraseFinding(finding);
     const suggestionId = randomUUID();
     db.prepare(
-      `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, display_context, relevancy_score, content, related_entity_id)
-       VALUES (?, ?, ?, ?, 'dashboard', ?, ?, ?)`
-    ).run(suggestionId, finding.userId, finding.module, triggerType, finding.relevancyScore, content, finding.relatedEntityId);
+      `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, display_context, relevancy_score, content, related_entity_id, suggested_value)
+       VALUES (?, ?, ?, ?, 'dashboard', ?, ?, ?, ?)`
+    ).run(
+      suggestionId,
+      finding.userId,
+      finding.module,
+      triggerType,
+      finding.relevancyScore,
+      content,
+      finding.relatedEntityId,
+      suggestedValue
+    );
 
     // Notifications.md: "Advisor suggestions... all flow through this same
     // general Notification system" — not just the Suggestion History/Dashboard list.

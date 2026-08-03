@@ -10,6 +10,7 @@ import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
 import { saveUploadedFile } from "@/lib/storage/files";
 import { indexContent } from "@/lib/core/search";
+import { ensureCategoryExists } from "@/lib/core/documents/categories";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
     `INSERT INTO documents (id, file, title, folder_id, category, is_sensitive, uploaded_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(id, storedPath, title.trim(), folderId, typeof category === "string" ? category : null, isSensitive ? 1 : 0, actorId);
+  if (typeof category === "string" && category.trim()) ensureCategoryExists(category.trim(), actorId);
 
   const row = db.prepare(`SELECT * FROM documents WHERE id = ?`).get(id) as DocumentRow;
   // Search.md: title/category are the fields Documents indexes for cross-content search.

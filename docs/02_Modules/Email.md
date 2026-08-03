@@ -24,11 +24,14 @@ Defines the Email module — a lightweight, per-user email connection that surfa
 - **One account per user for MVP.** Each family member can connect a single personal email account. Support for multiple accounts per user is a planned future upgrade (see Future Enhancements).
 - **"Important" flagging via local AI.** The determination of which unread messages look important is made locally (via Ollama, per `AI_Architecture.md`) — this doesn't require an outside frontier-model call the way photo extraction does, since it's a lighter classification task on already-fetched summary data.
 - **Sensitive by default, same as photo extraction.** Email content is treated as sensitive by default (per `AI_Permissions.md`). This doesn't block the initial connection or summary (that's covered by the Standing Integration Connection model above), but it does mean: if the AI ever wants to take a further outside-bound action using something found in an email (e.g., extracting an event mention and sending it to an outside frontier model, similar to `Assistant.md`'s photo-to-event pattern), that specific step requires the sensitive-data outside-transmission gate — and remains unavailable to a minor's account, even though connecting the email itself was allowed.
+- **Gmail OAuth ("Sign in with Google"), built 2026-08-02 — Gmail only.** A second, additive connection path for Gmail specifically, alongside the IMAP+app-password path above (which remains the only path for Outlook/Yahoo/iCloud/Other, and stays available as a fallback for Gmail too). Motivated by a real user report: their real Gmail password failed IMAP login every time — Google requires a separate app password once 2-Step Verification is on, which isn't obvious from the error alone. OAuth sidesteps that entirely: the user is redirected to Google's own consent screen, approves a single `gmail.readonly` scope, and Google hands the app a refresh token — **the real Google password never touches Tikas at all**, not even briefly, which is strictly safer than the app-password approach. Uses the Gmail API instead of IMAP for the summary fetch when connected this way; everything else (the local importance classification, one-account-per-user, revoke) is identical either way. Requires a one-time, household-level Google Cloud OAuth app registration (Client ID/Secret in `.env.local`) — see `.env.example`'s comment for setup steps; Gmail's "Sign in with Google" button shows a clear "not set up yet" message if that hasn't been done.
+- **Reachable from the profile page, built 2026-08-02.** Before this, `/email` had no link anywhere in the app — only reachable by typing the URL directly, a real gap found the same session as the OAuth request above. An "Add Connection" tab on the My Profile page (`Users.md`) now links to it.
 
 ## Screen Layout
 
 - **Email summary card** (likely surfaced on the Dashboard or within this module's own screen): unread count, important count, and a short list of the flagged-important messages with subject/sender and a link to open in the user's actual email provider.
-- **Connect Email Account:** a simple setup flow where a user links their personal email account — the connecting action itself serves as consent, per the Standing Integration Connection model.
+- **Connect Email Account:** a simple setup flow where a user links their personal email account — the connecting action itself serves as consent, per the Standing Integration Connection model. For Gmail specifically, a "Sign in with Google" button is the primary path (2026-08-02); the same IMAP+app-password form used for every other provider is still available underneath, collapsed by default, as a fallback.
+- **Reachable via an "Add Connection" tab** on the My Profile page (`Users.md`) — the page itself has no server-fetched account status of its own, so this is a plain link, not an embedded connect form.
 - No inbox browsing, compose, or reply screens for MVP.
 
 ## Data Stored
@@ -43,6 +46,9 @@ Defines the Email module — a lightweight, per-user email connection that surfa
 | email_address | |
 | status | connected / revoked |
 | connected_at | |
+| auth_method | new, 2026-08-02 — `imap` or `oauth_google`; determines which credential field below is populated and which fetch path (IMAP vs. Gmail API) the summary uses |
+
+Implementation detail (not part of the entity's conceptual definition above, but real schema): IMAP connections also store `imap_host`/`imap_port`/`imap_username`/an encrypted app password; a Gmail OAuth connection instead stores an encrypted refresh token. Whichever set doesn't apply to a given row's `auth_method` stays NULL.
 
 - No raw email content is persisted — the unread/important summary is fetched and displayed live, similar to how `Dashboard.md`'s weather widget doesn't persist weather data as a lasting family record.
 
@@ -65,7 +71,8 @@ Defines the Email module — a lightweight, per-user email connection that surfa
 ## Future Enhancements
 
 - Support for multiple email accounts per user.
-- Possible AI-suggested actions derived from email content (e.g., "this looks like an event — add it to your calendar?"), following the same Advisor suggestion pattern used elsewhere, once the sensitive-content handling above is well-tested.
+- Possible AI-suggested actions derived from email content (e.g., "this looks like an event — add it to your calendar?"), following the same Advisor suggestion pattern used elsewhere, once the sensitive-content handling above is well-tested — the `gmail.readonly` scope (broader than today's actual subject/from-only usage) was deliberately chosen with this in mind, so it wouldn't require re-consent from every connected family member later.
+- OAuth for other providers (Outlook has its own via Microsoft's identity platform; Yahoo has its own; iCloud doesn't really offer one for third-party apps) — not built, IMAP+app-password remains their only path for now.
 - Full inbox browsing or reply capability, if ever warranted — not currently planned, since the intent is a lightweight summary, not a full client.
 
 ## Questions

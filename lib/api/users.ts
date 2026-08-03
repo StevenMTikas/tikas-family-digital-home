@@ -1,6 +1,8 @@
 // Thin typed API client for Users — see Application_Architecture.md's
 // "Frontend ↔ Backend Communication" section.
 
+import type { Role } from "@/lib/core/permissions/types";
+
 export interface SelfEditableProfile {
   fullName: string;
   photo: string | null;
@@ -36,7 +38,10 @@ export interface NewUserInput {
   dateOfBirth: string;
   username: string;
   password: string;
-  role: "super_admin" | "admin" | "basic_user";
+  // Deliberately excludes "external_viewer" — those accounts are created
+  // through a separate flow/endpoint (lib/api/externalViewers.ts), not this
+  // one. See app/api/users/route.ts's role validation.
+  role: Exclude<Role, "external_viewer">;
 }
 
 export async function createUser(input: NewUserInput): Promise<void> {

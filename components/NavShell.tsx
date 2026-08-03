@@ -23,6 +23,11 @@ const NAV_ITEMS = [
   { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/tasks", label: "Tasks", icon: "✅" },
   { href: "/content", label: "Content", icon: "📁" },
+  // Added 2026-08 alongside the external_viewer feature — a standalone
+  // module (not folded into Navigation.md's original 5-item spec) so it has
+  // a 1:1 counterpart at app/family-view/board. See
+  // docs/02_Modules/Family_Board.md.
+  { href: "/board", label: "Family Board", icon: "📌" },
   { href: "/search", label: "Search", icon: "🔍" },
 ];
 

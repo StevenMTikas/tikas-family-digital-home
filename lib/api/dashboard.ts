@@ -29,9 +29,47 @@ async function unwrap<T>(res: Response): Promise<T> {
     const body = await res.json().catch(() => null);
     throw new DashboardApiError(body?.error?.message ?? "Request failed.");
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
 export async function getFamilyBriefing(): Promise<FamilyBriefing> {
   return unwrap(await fetch("/api/dashboard/family"));
+}
+
+export interface FamilyMessage {
+  id: string;
+  text: string;
+  postedBy: string;
+  postedByName: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function getFamilyMessages(): Promise<FamilyMessage[]> {
+  return unwrap(await fetch("/api/dashboard/messages"));
+}
+
+export async function postFamilyMessage(text: string): Promise<FamilyMessage> {
+  return unwrap(
+    await fetch("/api/dashboard/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+  );
+}
+
+export async function editFamilyMessage(id: string, text: string): Promise<FamilyMessage> {
+  return unwrap(
+    await fetch(`/api/dashboard/messages/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    })
+  );
+}
+
+export async function deleteFamilyMessage(id: string): Promise<void> {
+  return unwrap(await fetch(`/api/dashboard/messages/${id}`, { method: "DELETE" }));
 }

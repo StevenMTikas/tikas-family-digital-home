@@ -33,10 +33,14 @@ interface PublicUserRow {
 }
 
 // "Family visibility" per Users.md — every family member can see this much
-// about every other member, with no folder or permission gate.
+// about every other member, with no folder or permission gate. Excludes
+// external_viewer rows (2026-08) — they're a different kind of account,
+// managed from Administration's External Viewers tab, and shouldn't appear
+// in the general "who's who" roster this feeds (Calendar/Task assignment
+// pickers, the Users page family grid).
 export async function GET() {
   const rows = getDb()
-    .prepare(`SELECT id, full_name, photo, relationship, hobbies_interests, role FROM users`)
+    .prepare(`SELECT id, full_name, photo, relationship, hobbies_interests, role FROM users WHERE role != 'external_viewer'`)
     .all() as PublicUserRow[];
 
   const members: PublicFamilyMember[] = rows.map((row) => ({

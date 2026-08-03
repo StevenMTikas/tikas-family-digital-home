@@ -5,7 +5,9 @@
 
 import { getDb } from "@/db/client";
 
-export type Role = "super_admin" | "admin" | "basic_user";
+export type { Role } from "./types";
+export { FAMILY_ROLES } from "./types";
+import type { Role } from "./types";
 
 export interface PermissionContext {
   userId: string;
@@ -22,6 +24,9 @@ export interface GrantablePermissions {
   deleteContent: boolean;
   manageFolderPermissions: boolean;
   approveSensitiveOutsideTransmission: boolean;
+  // Only meaningful for role='external_viewer' — gates read access to the
+  // Family Board. See db/schema.sql's users.view_family_board comment.
+  viewFamilyBoard: boolean;
 }
 
 export interface AuthUser {
@@ -44,6 +49,7 @@ interface UserRow {
   delete_content: number;
   manage_folder_permissions: number;
   approve_sensitive_outside_transmission: number;
+  view_family_board: number;
 }
 
 /**
@@ -56,7 +62,8 @@ export async function getAuthUser(userId: string): Promise<AuthUser | null> {
     .prepare(
       `SELECT id, role, admin_scope, approve_outside_calls, manage_devices,
               manage_parental_controls, view_child_activity_logs, delete_content,
-              manage_folder_permissions, approve_sensitive_outside_transmission
+              manage_folder_permissions, approve_sensitive_outside_transmission,
+              view_family_board
        FROM users WHERE id = ?`
     )
     .get(userId) as UserRow | undefined;
@@ -75,6 +82,7 @@ export async function getAuthUser(userId: string): Promise<AuthUser | null> {
       deleteContent: !!row.delete_content,
       manageFolderPermissions: !!row.manage_folder_permissions,
       approveSensitiveOutsideTransmission: !!row.approve_sensitive_outside_transmission,
+      viewFamilyBoard: !!row.view_family_board,
     },
   };
 }

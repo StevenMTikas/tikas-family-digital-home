@@ -23,16 +23,16 @@ describe("createSessionCookieValue / verifySessionCookieValue", () => {
 
   it("rejects a cookie with the user id swapped but the original signature kept — the core forgery case", () => {
     const dadCookie = createSessionCookieValue("dad");
-    const [, signature] = dadCookie.split(".");
-    const forged = `vee.${signature}`;
+    const [, expiresAt, signature] = dadCookie.split(".");
+    const forged = `vee.${expiresAt}.${signature}`;
     expect(verifySessionCookieValue(forged)).toBeNull();
   });
 
   it("rejects a cookie with any single character of the signature altered", () => {
     const value = createSessionCookieValue("dad");
-    const [userId, signature] = value.split(".");
+    const [userId, expiresAt, signature] = value.split(".");
     const flippedChar = signature![0] === "a" ? "b" : "a";
-    const tampered = `${userId}.${flippedChar}${signature!.slice(1)}`;
+    const tampered = `${userId}.${expiresAt}.${flippedChar}${signature!.slice(1)}`;
     expect(verifySessionCookieValue(tampered)).toBeNull();
   });
 
@@ -41,6 +41,8 @@ describe("createSessionCookieValue / verifySessionCookieValue", () => {
     expect(verifySessionCookieValue("")).toBeNull();
     expect(verifySessionCookieValue("dad.")).toBeNull();
     expect(verifySessionCookieValue(".signature")).toBeNull();
+    expect(verifySessionCookieValue("dad..")).toBeNull();
+    expect(verifySessionCookieValue("dad.123.sig.extra")).toBeNull();
   });
 
   it("returns null for undefined (no cookie present)", () => {
@@ -49,15 +51,40 @@ describe("createSessionCookieValue / verifySessionCookieValue", () => {
 
   it("rejects a signature that's a different length than expected, without throwing", () => {
     const value = createSessionCookieValue("dad");
-    const [userId] = value.split(".");
+    const [userId, expiresAt] = value.split(".");
     // A shorter-than-expected signature must fail cleanly (not throw) —
     // this exercises the length-check guard before the timingSafeEqual call,
     // since timingSafeEqual itself throws on mismatched buffer lengths.
-    expect(() => verifySessionCookieValue(`${userId}.short`)).not.toThrow();
-    expect(verifySessionCookieValue(`${userId}.short`)).toBeNull();
+    expect(() => verifySessionCookieValue(`${userId}.${expiresAt}.short`)).not.toThrow();
+    expect(verifySessionCookieValue(`${userId}.${expiresAt}.short`)).toBeNull();
   });
 
   it("SESSION_COOKIE_NAME is a stable constant", () => {
     expect(SESSION_COOKIE_NAME).toBe("tikas_session");
+  });
+
+  describe("expiry (external_viewer's 30-day TTL)", () => {
+    it("with no expiresAtEpochMs, verifies indefinitely — unaffected internal-role behavior", () => {
+      const value = createSessionCookieValue("dad");
+      expect(verifySessionCookieValue(value)).toBe("dad");
+      expect(value.split(".")[1]).toBe("");
+    });
+
+    it("verifies while still within the given expiry", () => {
+      const value = createSessionCookieValue("grandma", Date.now() + 60_000);
+      expect(verifySessionCookieValue(value)).toBe("grandma");
+    });
+
+    it("rejects once the expiry time has passed", () => {
+      const value = createSessionCookieValue("grandma", Date.now() - 1);
+      expect(verifySessionCookieValue(value)).toBeNull();
+    });
+
+    it("rejects a cookie with its expiry edited to extend it — expiry is part of the signed payload", () => {
+      const value = createSessionCookieValue("grandma", Date.now() - 1);
+      const [userId, , signature] = value.split(".");
+      const tampered = `${userId}.${Date.now() + 60_000}.${signature}`;
+      expect(verifySessionCookieValue(tampered)).toBeNull();
+    });
   });
 });

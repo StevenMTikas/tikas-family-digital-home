@@ -13,8 +13,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser } from "@/lib/core/permissions";
-import { getWeekStart, toISODate, parseISODate } from "@/lib/calendar/dates";
-import CalendarPageClient, { type CalendarEventData, type FamilyMemberOption } from "./CalendarPageClient";
+import { getWeekStart, getMonthGridStart, toISODate, parseISODate } from "@/lib/calendar/dates";
+import CalendarPageClient, { type CalendarEventData, type FamilyMemberOption, type CalendarView } from "./CalendarPageClient";
 
 interface EventRow {
   id: string;
@@ -25,27 +25,47 @@ interface EventRow {
   visibility: "public" | "private";
   category: CalendarEventData["category"];
   reminder_lead_time: string | null;
+  recurrence_id: string | null;
+  recurrence_frequency: CalendarEventData["recurrenceFrequency"];
 }
 
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ date?: string; view?: string }>;
 }) {
   const userId = (await headers()).get("x-user-id");
   const actor = userId ? await getAuthUser(userId) : null;
   if (!actor) redirect("/login");
 
-  const { week } = await searchParams;
-  const weekStart = getWeekStart(parseISODate(week, new Date()));
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 7);
+  const { date, view: rawView } = await searchParams;
+  const view: CalendarView = rawView === "month" || rawView === "day" ? rawView : "week";
+  const anchorDate = parseISODate(date, new Date());
+
+  // Fetch range depends on view — month pads out to the full 6-row grid
+  // (including leading/trailing days from adjacent months) so those cells
+  // show real events too, not just current-month days.
+  let rangeStart: Date;
+  let rangeEnd: Date;
+  if (view === "month") {
+    rangeStart = getMonthGridStart(anchorDate);
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 42);
+  } else if (view === "day") {
+    rangeStart = anchorDate;
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 1);
+  } else {
+    rangeStart = getWeekStart(anchorDate);
+    rangeEnd = new Date(rangeStart);
+    rangeEnd.setDate(rangeEnd.getDate() + 7);
+  }
 
   const db = getDb();
 
   const rows = db
     .prepare(`SELECT * FROM events WHERE date_time >= ? AND date_time < ? ORDER BY date_time`)
-    .all(toISODate(weekStart), toISODate(weekEnd)) as EventRow[];
+    .all(toISODate(rangeStart), toISODate(rangeEnd)) as EventRow[];
 
   const assignmentStmt = db.prepare(`SELECT user_id FROM event_assignments WHERE event_id = ?`);
 
@@ -59,13 +79,15 @@ export default async function CalendarPage({
       visibility: row.visibility,
       category: row.category,
       reminderLeadTime: row.reminder_lead_time,
+      recurrenceId: row.recurrence_id,
+      recurrenceFrequency: row.recurrence_frequency,
       createdBy: row.created_by,
       assigneeIds: (assignmentStmt.all(row.id) as { user_id: string }[]).map((r) => r.user_id),
       canEdit: canManageUser(actor, row.created_by),
     }));
 
   const familyMembers = db
-    .prepare(`SELECT id, full_name, calendar_color FROM users`)
+    .prepare(`SELECT id, full_name, calendar_color FROM users WHERE role != 'external_viewer'`)
     .all() as { id: string; full_name: string; calendar_color: string | null }[];
 
   const members: FamilyMemberOption[] = familyMembers.map((row) => ({
@@ -76,7 +98,8 @@ export default async function CalendarPage({
 
   return (
     <CalendarPageClient
-      weekStartIso={toISODate(weekStart)}
+      view={view}
+      anchorDateIso={toISODate(anchorDate)}
       events={events}
       familyMembers={members}
       currentUserId={actor.id}

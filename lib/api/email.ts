@@ -7,6 +7,7 @@ export interface EmailAccount {
   emailAddress: string;
   status: "connected" | "revoked";
   connectedAt: string;
+  authMethod: "imap" | "oauth_google";
 }
 
 export interface FlaggedMessage {

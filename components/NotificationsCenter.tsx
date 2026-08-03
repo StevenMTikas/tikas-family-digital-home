@@ -20,7 +20,13 @@ import {
   routeForNotification,
   type NotificationEntry,
 } from "@/lib/api/notifications";
-import { getPushSubscriptionStatus, subscribeToPush, unsubscribeFromPush, PushApiError } from "@/lib/api/push";
+import {
+  getPushSubscriptionStatus,
+  getPushDiagnosticDetail,
+  subscribeToPush,
+  unsubscribeFromPush,
+  PushApiError,
+} from "@/lib/api/push";
 
 interface Toast extends NotificationEntry {
   toastId: string;
@@ -39,6 +45,7 @@ export default function NotificationsCenter() {
     "checking"
   );
   const [pushError, setPushError] = useState<string | null>(null);
+  const [pushDiagnostic, setPushDiagnostic] = useState<string | null>(null);
   const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
@@ -48,6 +55,9 @@ export default function NotificationsCenter() {
     getPushSubscriptionStatus()
       .then(setPushStatus)
       .catch(() => setPushStatus("unsupported"));
+    getPushDiagnosticDetail()
+      .then(setPushDiagnostic)
+      .catch(() => {});
 
     const source = new EventSource("/api/notifications/stream");
     source.onmessage = (event) => {
@@ -168,6 +178,19 @@ export default function NotificationsCenter() {
                 <p className="text-[11px] text-ink-muted">
                   Push notifications are blocked for this site in your browser settings.
                 </p>
+              )}
+              {pushStatus === "unsupported" && (
+                <>
+                  <p className="text-[11px] text-ink-muted">
+                    Push notifications aren't supported in this browser.
+                  </p>
+                  {pushDiagnostic && (
+                    <p className="text-[10px] text-ink-muted/70 mt-1 break-all">{pushDiagnostic}</p>
+                  )}
+                </>
+              )}
+              {pushStatus === "checking" && (
+                <p className="text-[11px] text-ink-muted">Checking notification support…</p>
               )}
               {pushError && <p className="text-[11px] text-urgent mt-1">{pushError}</p>}
             </div>

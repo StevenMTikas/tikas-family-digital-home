@@ -72,6 +72,19 @@ export async function* ollamaChatStream(
   const decoder = new TextDecoder();
   let buffer = "";
 
+  // Guards a known failure mode: instead of using the `tool_calls` field
+  // Ollama provides for a real tool call, the model sometimes writes one as
+  // literal JSON into `content` instead (e.g. `{"name": "get_open_tasks",
+  // "arguments": {}}`) — malformed output that must never reach the user as
+  // prose. Sniff the leading edge of content for this shape; once it's
+  // clear a reply isn't doing this (the overwhelmingly common case), stop
+  // sniffing and stream straight through with no added delay. A reply that
+  // legitimately starts with `{` (e.g. a JSON example asked for) costs at
+  // most SNIFF_GIVE_UP_LENGTH characters of buffering before it flushes.
+  let sniffing = true;
+  let sniffBuffer = "";
+  const SNIFF_GIVE_UP_LENGTH = 500;
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -84,9 +97,68 @@ export async function* ollamaChatStream(
       const chunk = JSON.parse(line);
       if (chunk.message?.tool_calls?.length) {
         yield { type: "tool_calls", calls: chunk.message.tool_calls as ToolCall[] };
-      } else if (chunk.message?.content) {
-        yield { type: "content", text: chunk.message.content as string };
+        continue;
+      }
+
+      const text = chunk.message?.content as string | undefined;
+      if (!text) continue;
+
+      if (!sniffing) {
+        yield { type: "content", text };
+        continue;
+      }
+
+      sniffBuffer += text;
+      const trimmed = sniffBuffer.trimStart();
+      if (!trimmed.startsWith("{")) {
+        sniffing = false;
+        yield { type: "content", text: sniffBuffer };
+        sniffBuffer = "";
+        continue;
+      }
+
+      let parsed: { name?: unknown; arguments?: unknown; parameters?: unknown } | null = null;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch {
+        // Not complete/valid JSON yet — keep buffering, unless this has
+        // gone on long enough that it's clearly not a short tool-call object.
+        if (sniffBuffer.length > SNIFF_GIVE_UP_LENGTH) {
+          sniffing = false;
+          yield { type: "content", text: sniffBuffer };
+          sniffBuffer = "";
+        }
+        continue;
+      }
+
+      sniffing = false;
+      sniffBuffer = "";
+      if (parsed && typeof parsed.name === "string" && parsed.name.length > 0) {
+        // runTool already falls back to "Unknown tool: X" for a name that
+        // doesn't match a real tool, so a rare false-positive sniff (some
+        // other JSON reply that happens to have a top-level "name" string)
+        // degrades to that existing fallback rather than a broken state.
+        yield {
+          type: "tool_calls",
+          calls: [
+            {
+              function: {
+                name: parsed.name,
+                arguments: (parsed.arguments ?? parsed.parameters ?? {}) as Record<string, unknown>,
+              },
+            },
+          ],
+        };
+      } else {
+        yield { type: "content", text: trimmed };
       }
     }
+  }
+
+  // Stream ended while still sniffing (e.g. a short reply that never
+  // resolved into complete JSON) — flush whatever was held back rather than
+  // silently dropping it.
+  if (sniffing && sniffBuffer) {
+    yield { type: "content", text: sniffBuffer };
   }
 }

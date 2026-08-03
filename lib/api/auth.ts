@@ -1,11 +1,13 @@
 // Thin typed API client for Authentication — see
 // Application_Architecture.md's "Frontend ↔ Backend Communication" section.
 
+import type { Role } from "@/lib/core/permissions/types";
+
 export interface LoggedInUser {
   id: string;
   username: string;
   fullName: string;
-  role: "super_admin" | "admin" | "basic_user";
+  role: Role;
 }
 
 export class LoginError extends Error {}

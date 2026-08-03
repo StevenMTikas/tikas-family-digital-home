@@ -19,9 +19,13 @@ import {
   createConversation,
   getConversation,
   sendMessageStreaming,
+  giveMessageFeedback,
+  previewEscalation,
+  confirmEscalation,
   AssistantApiError,
   type ConversationSummary,
   type ConversationMessage,
+  type EscalationPreview,
 } from "@/lib/api/assistant";
 
 // Web Speech API — Voice.md's MVP choice (Decision_Log.md notes the
@@ -61,10 +65,28 @@ export default function AssistantBubble() {
   const [loadedOnce, setLoadedOnce] = useState(false);
   const [listening, setListening] = useState(false);
   const [speechEnabled, setSpeechEnabled] = useState(false);
+  const [canEscalate, setCanEscalate] = useState(false);
+  // Which assistant message is currently showing an escalation preview, and its payload.
+  const [escalatingId, setEscalatingId] = useState<string | null>(null);
+  const [escalationPreview, setEscalationPreview] = useState<EscalationPreview | null>(null);
+  const [escalationBusy, setEscalationBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const lastReplyRef = useRef("");
   const draftInputRef = useRef<HTMLTextAreaElement>(null);
+  // Mirrors activeId for use inside async callbacks — state read in a
+  // closure captures its value at call time, so a background fetch that
+  // resolves after the user has switched conversations would otherwise
+  // silently overwrite the now-different active conversation's messages
+  // with stale data (the "my question disappeared" bug: a same-conversation
+  // race is also possible if a second send starts before the first one's
+  // post-stream refresh has landed).
+  const activeIdRef = useRef<string | null>(null);
+
+  function setActiveConversation(id: string | null) {
+    activeIdRef.current = id;
+    setActiveId(id);
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -146,12 +168,69 @@ export default function AssistantBubble() {
 
   async function selectConversation(id: string) {
     setError(null);
-    setActiveId(id);
+    setActiveConversation(id);
+    setEscalatingId(null);
+    setEscalationPreview(null);
     try {
       const detail = await getConversation(id);
+      if (activeIdRef.current !== id) return; // switched to a different conversation while this was loading
       setMessages(detail.messages);
+      setCanEscalate(detail.canEscalate);
     } catch (err) {
+      if (activeIdRef.current !== id) return;
       setError(err instanceof AssistantApiError ? err.message : "Couldn't load that conversation.");
+    }
+  }
+
+  async function handleFeedback(messageId: string, feedback: "thumbs_up" | "thumbs_down") {
+    const conversationId = activeId;
+    if (!conversationId) return;
+    setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, feedback } : m)));
+    try {
+      await giveMessageFeedback(conversationId, messageId, feedback);
+    } catch (err) {
+      if (activeIdRef.current !== conversationId) return;
+      setError(err instanceof AssistantApiError ? err.message : "Couldn't save feedback.");
+      return;
+    }
+
+    // Thumbs-down escalation offer — only for local replies, and only when
+    // the actor holds both permissions AI_Permissions.md requires (server
+    // re-checks this too; canEscalate just controls whether we bother asking).
+    const message = messages.find((m) => m.id === messageId);
+    if (feedback === "thumbs_down" && canEscalate && message?.source === "local") {
+      try {
+        const preview = await previewEscalation(conversationId, messageId);
+        if (activeIdRef.current !== conversationId) return; // switched away before the preview came back
+        setEscalatingId(messageId);
+        setEscalationPreview(preview);
+      } catch (err) {
+        if (activeIdRef.current !== conversationId) return;
+        setError(err instanceof AssistantApiError ? err.message : "Couldn't prepare escalation preview.");
+      }
+    }
+  }
+
+  function cancelEscalation() {
+    setEscalatingId(null);
+    setEscalationPreview(null);
+  }
+
+  async function handleConfirmEscalation() {
+    const conversationId = activeId;
+    if (!conversationId || !escalatingId) return;
+    setEscalationBusy(true);
+    try {
+      const reply = await confirmEscalation(conversationId, escalatingId);
+      if (activeIdRef.current !== conversationId) return; // switched away before the escalation finished
+      setMessages((prev) => [...prev, reply]);
+      setEscalatingId(null);
+      setEscalationPreview(null);
+    } catch (err) {
+      if (activeIdRef.current !== conversationId) return;
+      setError(err instanceof AssistantApiError ? err.message : "Escalation failed.");
+    } finally {
+      setEscalationBusy(false);
     }
   }
 
@@ -160,7 +239,7 @@ export default function AssistantBubble() {
     try {
       const created = await createConversation();
       setConversations((prev) => [created, ...prev]);
-      setActiveId(created.id);
+      setActiveConversation(created.id);
       setMessages([]);
     } catch (err) {
       setError(err instanceof AssistantApiError ? err.message : "Couldn't start a new conversation.");
@@ -179,7 +258,7 @@ export default function AssistantBubble() {
         const created = await createConversation();
         setConversations((prev) => [created, ...prev]);
         conversationId = created.id;
-        setActiveId(created.id);
+        setActiveConversation(created.id);
       } catch (err) {
         setError(err instanceof AssistantApiError ? err.message : "Couldn't start a conversation.");
         return;
@@ -191,14 +270,32 @@ export default function AssistantBubble() {
     setSending(true);
     setMessages((prev) => [
       ...prev,
-      { id: `local-${Date.now()}`, role: "user", content: text, createdAt: new Date().toISOString() },
-      { id: `local-reply-${Date.now()}`, role: "assistant", content: "", createdAt: new Date().toISOString() },
+      {
+        id: `local-${Date.now()}`,
+        role: "user",
+        content: text,
+        createdAt: new Date().toISOString(),
+        feedback: null,
+        source: "local",
+      },
+      {
+        id: `local-reply-${Date.now()}`,
+        role: "assistant",
+        content: "",
+        createdAt: new Date().toISOString(),
+        feedback: null,
+        source: "local",
+      },
     ]);
 
     let fullReply = "";
     try {
       await sendMessageStreaming(conversationId, text, (chunk) => {
         fullReply += chunk;
+        // Guard against a reply chunk landing after the user has switched to
+        // a different conversation — without this, the chunk would silently
+        // get appended to whichever conversation happens to be showing now.
+        if (activeIdRef.current !== conversationId) return;
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
@@ -210,11 +307,30 @@ export default function AssistantBubble() {
       });
       lastReplyRef.current = fullReply;
       if (speechEnabled) speak(fullReply);
-      // Refresh the conversation list so a freshly auto-generated title shows up.
+      // Replace the optimistic temp-id messages with the persisted rows (real
+      // ids + actual source) so feedback/escalate have something to target,
+      // and refresh the list so a freshly auto-generated title shows up.
+      // Guarded the same way — this refresh is only valid for the
+      // conversation it was requested for, not whatever's active by the
+      // time it resolves (the "my question disappeared" bug: switching
+      // conversations, or sending a second message, before this landed
+      // let a stale snapshot silently overwrite newer content).
       getConversations().then(setConversations).catch(() => {});
+      getConversation(conversationId)
+        .then((detail) => {
+          if (activeIdRef.current !== conversationId) return;
+          setMessages(detail.messages);
+          setCanEscalate(detail.canEscalate);
+        })
+        .catch(() => {});
     } catch (err) {
-      setError(err instanceof AssistantApiError ? err.message : "Something went wrong. Try again.");
+      if (activeIdRef.current === conversationId) {
+        setError(err instanceof AssistantApiError ? err.message : "Something went wrong. Try again.");
+      }
     } finally {
+      // Global flag (only one send in flight at a time) — always reset
+      // regardless of which conversation is active now, or the compose box
+      // would stay disabled forever after switching away mid-send.
       setSending(false);
     }
   }
@@ -304,17 +420,78 @@ export default function AssistantBubble() {
                   Hi! I&apos;m here whenever you need something — ask me anything.
                 </div>
               )}
-              {messages.map((m) => (
-                <div key={m.id} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+              {messages.map((m) => {
+                const isPersisted = !m.id.startsWith("local-");
+                return (
+                <div key={m.id} className={`flex flex-col ${m.role === "user" ? "items-end" : "items-start"}`}>
                   <div
                     className={`max-w-[78%] px-3.5 py-2.5 rounded-2xl text-[13.5px] leading-relaxed ${
                       m.role === "user" ? "bg-trust text-white" : "bg-base text-ink"
                     }`}
                   >
                     {m.content || (sending && m.role === "assistant" ? "…" : "")}
+                    {m.role === "assistant" && m.source === "frontier" && (
+                      <div className="text-[10px] text-ink-muted mt-1">via Claude</div>
+                    )}
                   </div>
+
+                  {m.role === "assistant" && isPersisted && (
+                    <div className="flex items-center gap-2 mt-1 px-1">
+                      <button
+                        type="button"
+                        onClick={() => handleFeedback(m.id, "thumbs_up")}
+                        aria-label="Good reply"
+                        title="Good reply"
+                        className={`text-xs ${m.feedback === "thumbs_up" ? "opacity-100" : "opacity-40 hover:opacity-70"}`}
+                      >
+                        👍
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleFeedback(m.id, "thumbs_down")}
+                        aria-label="Not helpful"
+                        title="Not helpful"
+                        className={`text-xs ${m.feedback === "thumbs_down" ? "opacity-100" : "opacity-40 hover:opacity-70"}`}
+                      >
+                        👎
+                      </button>
+                    </div>
+                  )}
+
+                  {escalatingId === m.id && escalationPreview && (
+                    <div className="max-w-[92%] mt-2 p-3 rounded-xl border border-accent/30 bg-accent/[0.06] text-[12px] text-ink">
+                      <p className="font-semibold mb-1.5">Ask a frontier model (Claude) for a second opinion?</p>
+                      <p className="text-ink-muted mb-1">This will send:</p>
+                      <ul className="list-disc list-inside text-ink-muted mb-2 space-y-0.5">
+                        <li>Your question: &quot;{escalationPreview.question}&quot;</li>
+                        <li>The local reply you just rated down</li>
+                        {escalationPreview.memoryFacts.length > 0 && (
+                          <li>{escalationPreview.memoryFacts.length} fact{escalationPreview.memoryFacts.length === 1 ? "" : "s"} from what the Assistant knows about you</li>
+                        )}
+                      </ul>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleConfirmEscalation}
+                          disabled={escalationBusy}
+                          className="px-3 py-1.5 rounded-lg bg-accent-strong text-white text-xs disabled:opacity-60"
+                        >
+                          {escalationBusy ? "Asking…" : "Send it"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEscalation}
+                          disabled={escalationBusy}
+                          className="px-3 py-1.5 rounded-lg text-ink-muted text-xs disabled:opacity-60"
+                        >
+                          Never mind
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
 

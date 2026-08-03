@@ -37,6 +37,13 @@ Defines the behavior of the Guardian — the background AI role responsible for 
 - **Explicitly not** content judgment, sentiment analysis, or any interpretation of *why* a pattern exists — Guardian reports what's observably true, not what it might mean.
 - Deeper, opt-in monitoring levels (e.g., content-aware parental monitoring) are a future, explicitly-selected parental control setting — not something Guardian does by default, and not part of MVP. See Future Enhancements.
 
+**Safety Signal (a deliberate, narrow exception to "fact-level only," built 2026-08-01)**
+- Guardian also scans recent Assistant conversation content (messages since its last run) for a small, explicit, hand-picked set of keyword/phrase buckets — currently self-harm, abuse, and danger — and produces a finding when one matches.
+- This *is* content-aware, which the Family-Pattern Health rule above otherwise rules out for MVP — a deliberate exception the Super Admin directed be built (2026-08-01), not a quiet expansion of Guardian's general scope. It's narrow by design: a small, fixed phrase list chosen to bias toward missing a real concern over over-flagging ordinary conversation, and it's a scheduled fact-check (once a day, same as everything else Guardian does), not real-time surveillance.
+- The finding text states only that a category matched (e.g., "...language that may relate to self-harm...") — it never quotes the actual private message, so a household member's exact words aren't exposed even to whoever receives the alert; the point is "go check in personally," not "read what they said."
+- Notifies the Super Admin always, plus any Admin who is both scoped to that person (`admin_scope`) and individually holds **"View Child Activity Logs"** — the same permission `AI_Memory.md` now reuses for viewing a scoped child's AI_Memory profile. An Admin without that permission never sees it, even if scoped to the person.
+- Not routed through Advisor or the passive channel — it's its own channel (below), always `urgent` severity.
+
 This starter list is expected to expand as real usage reveals what's actually worth watching.
 
 ### Schedule
@@ -44,17 +51,18 @@ This starter list is expected to expand as real usage reveals what's actually wo
 - **MVP: runs once per day**, on a schedule (per `AI_Architecture.md`'s "background, scheduled" design).
 - **Commercial version:** frequency needs closer evaluation — likely more frequent or event-driven for urgent categories (e.g., disk space, backup failure) — noted as a future item, not decided here.
 
-### Three Output Channels
+### Four Output Channels
 
-Guardian's findings route to one of three places, depending on severity:
+Guardian's findings route to one of four places, depending on severity:
 
 | Channel | Used For | MVP Delivery | Commercial Delivery (Future) |
 |---|---|---|---|
 | **Passive Admin Dashboard notification** | Lower-priority findings, awareness-only (e.g., a blocked outside-call attempt) | Shown on Super Admin's Admin Dashboard | Same, dashboard-based |
 | **Handoff to Advisor** | Findings better framed as an actionable suggestion for a specific family member (per `Advisor.md`'s cross-role triggering) | Becomes an `AI_Suggestion`, shown per Advisor's display rules | Same |
 | **Urgent direct alert** | Findings that genuinely can't wait — e.g., backup failure, disk nearly full | Shown as a distinct, urgent item on the Super Admin's Admin Dashboard, MVP | Sent via email and/or text, in addition to or instead of dashboard display |
+| **Safety notification** (built 2026-08-01) | A Safety Signal finding (above) — a keyword match in a family member's recent Assistant conversation | Urgent notification to the Super Admin and any permitted, scoped Admin (see above) | Same, likely also email/text alongside urgent alerts |
 
-Guardian itself decides which channel a given finding belongs in, based on severity — this classification logic lives in Guardian's own reasoning, not a fixed static table, though the categories above (system health issues affecting availability = likely urgent; routine security awareness = passive; family usage patterns = Advisor handoff) are the starting guide.
+Guardian itself decides which channel a given finding belongs in, based on severity — this classification logic lives in Guardian's own reasoning, not a fixed static table, though the categories above (system health issues affecting availability = likely urgent; routine security awareness = passive; family usage patterns = Advisor handoff; a safety keyword match = safety) are the starting guide.
 
 ## Screen Layout
 
@@ -71,14 +79,14 @@ Guardian itself decides which channel a given finding belongs in, based on sever
 
 - Runs on its own daily schedule for MVP — not triggered by any user request.
 - Operates under its own dedicated Guardian role (broad read, no write, suggest-only) per `AI_Permissions.md` — this document doesn't redefine that, only what Guardian does with that access.
-- Classifies each finding into one of the three output channels based on severity.
-- For family-pattern observations, stays strictly at the fact level for MVP — no interpretation, judgment, or inferred cause.
+- Classifies each finding into one of the four output channels based on severity.
+- For family-pattern observations, stays strictly at the fact level for MVP — no interpretation, judgment, or inferred cause. The Safety Signal check (above) is the one deliberate, narrow, explicitly-directed exception to this — content-aware only for a small fixed keyword list, never quoting the actual message, never used for anything but that one narrow purpose.
 - Can trigger an Advisor suggestion (per `Advisor.md`'s cross-role triggering) when a finding is better delivered as a recommendation to a specific person than a system-level notification.
 
 ## Permissions
 
 - Fully governed by the Guardian role defined in `AI_Permissions.md` — broad read access across the system for monitoring purposes, no ability to create/edit/delete data, no outside-call authority beyond the same approval gates a human would need.
-- No new permissions introduced by this document.
+- **Safety notification recipients (2026-08-01):** reuses the existing "View Child Activity Logs" grantable permission (`Authorization.md`) as the gate for which Admin, if any, receives a safety notification about a specific scoped child — not a new permission of its own.
 
 ## Dependencies
 
@@ -91,6 +99,7 @@ Guardian itself decides which channel a given finding belongs in, based on sever
 - Reassessment of monitoring frequency (more frequent or event-driven) for the commercial version, especially for urgent categories.
 - Opt-in, higher-depth family monitoring levels for parents (moving beyond fact-only observations) — explicitly a future, selectable setting, not a default behavior, and to be designed as part of a future Parental Controls module rather than expanded here.
 - Expansion of the system health/security/family-pattern starter lists as real usage reveals gaps.
+- **Revisit the Safety Signal check's scope for a commercial/multi-household release** — built 2026-08-01 as an always-on, non-configurable exception for this one household, on this one household's explicit direction. A real product decision is needed before other households get it too: should it be opt-in/toggle-able per household (matching the "opt-in higher-depth monitoring" principle above, which this otherwise contradicts), should the keyword list be editable, and should there be any user-facing disclosure that this scanning happens at all (there currently isn't one).
 
 ## Questions
 

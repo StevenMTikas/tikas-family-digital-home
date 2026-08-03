@@ -56,6 +56,15 @@ export async function setDocumentSensitivity(id: string, isSensitive: boolean): 
   await unwrap(res);
 }
 
+export async function setDocumentCategory(id: string, category: string | null): Promise<void> {
+  const res = await fetch(`/api/documents/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ category }),
+  });
+  await unwrap(res);
+}
+
 export async function deleteDocument(id: string): Promise<void> {
   return unwrap(await fetch(`/api/documents/${id}`, { method: "DELETE" }));
 }

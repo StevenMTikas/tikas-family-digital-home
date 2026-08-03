@@ -24,6 +24,8 @@ interface TaskRow {
   created_by: string;
   assigned_by: string;
   visibility: "public" | "private";
+  recurrence_id: string | null;
+  recurrence_frequency: TaskData["recurrenceFrequency"];
 }
 
 export default async function TasksPage() {
@@ -52,6 +54,8 @@ export default async function TasksPage() {
       status: row.status,
       assignedBy: row.assigned_by,
       visibility: row.visibility,
+      recurrenceId: row.recurrence_id,
+      recurrenceFrequency: row.recurrence_frequency,
       // Not canManageUser — its "self" clause would wrongly let a task's
       // owner edit their own task even when someone else assigned it.
       canEdit: actor.id === row.assigned_by || hasAdminAuthorityOver(actor, row.owner_id),
@@ -60,7 +64,7 @@ export default async function TasksPage() {
     }));
 
   const memberRows = db
-    .prepare(`SELECT id, full_name, calendar_color FROM users`)
+    .prepare(`SELECT id, full_name, calendar_color FROM users WHERE role != 'external_viewer'`)
     .all() as { id: string; full_name: string; calendar_color: string | null }[];
 
   const familyMembers: FamilyMemberOption[] = memberRows.map((row) => ({

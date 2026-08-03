@@ -25,6 +25,7 @@ Defines the Dashboard — the app's overall home screen and primary navigation h
 - **Quick-action shortcuts.** Shortcuts to common actions/destinations across the app (e.g., add event, add task, open Assistant, jump to Documents) — the Dashboard is a navigation hub, not just a read-only summary.
 - **Link to the Family Dashboard.** A clear, one-tap way to move from the individual Dashboard to the shared family-wide view (per `Morning_Briefing.md`'s family-wide briefing, accessible alongside the shared family folder).
 - **General principle: reduce navigation friction without adding clutter.** Anything that makes the app easier to get around belongs here in some light-touch form — but per `Core_Principles.md`'s "presence without intrusion," the Dashboard should stay calm and scannable, not become a dumping ground for every feature.
+- **Family Message Board** (2026-07-31, Steven's idea). A plain human-to-family channel on the family-wide Dashboard view — distinct from Calendar/Tasks/Notifications and from AI-generated Advisor suggestions, this is a message a person actually typed for everyone to see (e.g. "Grandma's visiting Saturday, house needs to be picked up"). Any Admin or Super Admin can post; a Basic User can read the board but not post to it. Unlike Notifications' "last 10, hard delete beyond that" cap, a message stays until someone deletes it — no cap, no expiry.
 
 ## Screen Layout
 
@@ -33,11 +34,12 @@ Defines the Dashboard — the app's overall home screen and primary navigation h
 - **Suggestions area:** up to 10 active `AI_Suggestion` items (per `Advisor.md`'s display limits), each with accept/dismiss/thumbs-down controls (per `AI_Suggestions.md`).
 - **Quick actions:** a row or menu of shortcuts to common actions and modules.
 - **Family Dashboard link:** clearly visible, not buried in a settings menu.
+- **Family Message Board** (2026-07-31): shown only in the family-wide view (not "My Day"), above Today's Events/Tasks Due since it's the one section meant to be read together. An Admin/Super Admin sees a composer; everyone sees the message list (poster name, timestamp, "(edited)" tag if changed) with Edit shown only to the poster and Delete shown to the poster or the Super Admin.
 - Layout should stay scannable at a glance, consistent with the Morning Briefing's own "organized by section, not deep reading" approach.
 
 ## Data Stored
 
-- No new entities beyond what's already defined — the Dashboard composes existing data: **Event**, **Task**, **AI_Suggestion** (per `Morning_Briefing.md`, `Advisor.md`).
+- The Dashboard composes existing data — **Event**, **Task**, **AI_Suggestion** (per `Morning_Briefing.md`, `Advisor.md`) — plus one new entity of its own: **Family_Message** (2026-07-31; `id`, `text`, `posted_by`, `created_at`, `updated_at` — see `Data_Model.md`).
 - **Weather** is not persisted as family data — it's fetched from an external source and refreshed hourly, not stored as a lasting record. (Depending on the resolution of the open question below, a lightweight cache — e.g., last-fetched value + timestamp — may be worth adding to avoid excessive outside calls, but this isn't a new "family data" entity in the sense the rest of `Data_Model.md` covers.)
 
 ## AI Responsibilities
@@ -50,6 +52,7 @@ Defines the Dashboard — the app's overall home screen and primary navigation h
 - Everything shown on an individual's Dashboard is already scoped to that user's own permissions (events, tasks, suggestions) — no new permission rules introduced here.
 - The Family Dashboard link only ever surfaces the shared family-wide view (per `Folder_Permissions.md`'s whole-family folder model) — it doesn't grant access to anything beyond what's already visible to all family members by default.
 - Quick-action shortcuts respect the same permissions as navigating to that module directly — a shortcut doesn't bypass any permission check a normal navigation path would apply.
+- **Family Message Board** (2026-07-31): anyone can read it. Posting requires Admin or Super Admin (a Basic User cannot post). Editing a message is restricted to the person who posted it — nobody else, not even the Super Admin, can change its wording. Deleting a message is allowed for the poster, or the Super Admin as a moderation backstop.
 
 ## Dependencies
 

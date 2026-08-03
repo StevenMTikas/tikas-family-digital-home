@@ -181,7 +181,10 @@ export default async function ContentPage() {
   }
 
   // --- Family members (for display names) ---
-  const memberRows = db.prepare(`SELECT id, full_name FROM users`).all() as { id: string; full_name: string }[];
+  const memberRows = db.prepare(`SELECT id, full_name FROM users WHERE role != 'external_viewer'`).all() as {
+    id: string;
+    full_name: string;
+  }[];
   const familyMembers: FamilyMemberOption[] = memberRows.map((row) => ({ id: row.id, fullName: row.full_name }));
 
   return (
@@ -193,6 +196,7 @@ export default async function ContentPage() {
       passwords={passwords}
       familyMembers={familyMembers}
       currentUserId={actor.id}
+      isSuperAdmin={actor.role === "super_admin"}
     />
   );
 }

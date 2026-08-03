@@ -50,6 +50,7 @@ Both clear the suggestion from active display; the difference is in what gets re
 - **The user always reviews before anything is finalized** — accepting a suggestion never silently completes an action on its own for MVP; it prepares the action and hands it to the human for a final look and confirmation.
 - This is a deliberate MVP boundary consistent with the suggest-only constraint in `AI_Permissions.md` — the AI still isn't taking the action itself, it's making the human's job as easy as possible.
 - **Commercial version:** more automated acceptance (e.g., accept = done, no review step) is worth exploring later — noted in Future Enhancements, not built for MVP.
+- **Implemented for Documents (2026-07-30).** `phraseFinding` (`lib/core/ai/advisor.ts`) has the LLM commit to one specific category (not just describe the situation in prose) and stores it as `ai_suggestions.suggested_value`. Accepting a document-categorization suggestion navigates to Content → Documents with that category pre-filled in an edit form; the user still reviews and hits Save. Tasks and Calendar don't have this wired up yet — see `Future_Ideas.md`.
 
 ### Equal Treatment Regardless of Origin
 
@@ -72,6 +73,7 @@ Extends the existing **AI_Suggestion** entity (`Data_Model.md`) with lifecycle f
 | expired_at | new |
 | expired_reason | new — brief note on why (e.g., "related event passed," "task completed elsewhere") |
 | accepted_at | new — when the user accepted and was routed to complete the action |
+| suggested_value | new (2026-07-30) — a single structured value Advisor commits to alongside `content`'s prose, e.g. one specific document category, so Accept has something unambiguous to pre-fill. NULL for suggestion types with nothing structured to suggest yet (Tasks, Calendar) |
 
 ## AI Responsibilities
 

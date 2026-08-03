@@ -7,9 +7,9 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
-import { getAuthUser } from "@/lib/core/permissions";
+import { getAuthUser, hasPermission } from "@/lib/core/permissions";
 import { getTopMemories } from "@/lib/core/ai/memory";
-import AiSettingsPageClient, { type SuggestionData } from "./AiSettingsPageClient";
+import AiSettingsPageClient, { type SuggestionData, type ViewableUser } from "./AiSettingsPageClient";
 
 export default async function AiSettingsPage() {
   const userId = (await headers()).get("x-user-id");
@@ -22,8 +22,40 @@ export default async function AiSettingsPage() {
 
   const memories = await getTopMemories(actor.id, 500);
 
+  // Who else this actor is allowed to view the AI Memory profile of — a
+  // Super Admin sees everyone, an Admin sees their admin_scope only if also
+  // individually granted "View Child Activity Logs" (Authorization.md, and
+  // app/api/ai-memory/route.ts's matching GET check).
+  let viewableUsers: ViewableUser[] = [];
+  if (actor.role === "super_admin") {
+    const rows = getDb()
+      .prepare(`SELECT id, full_name FROM users WHERE id != ? AND role != 'external_viewer' ORDER BY full_name`)
+      .all(actor.id) as {
+      id: string;
+      full_name: string;
+    }[];
+    viewableUsers = rows.map((r) => ({ id: r.id, fullName: r.full_name }));
+  } else if (actor.role === "admin" && hasPermission(actor, "viewChildActivityLogs") && actor.adminScope.length > 0) {
+    const placeholders = actor.adminScope.map(() => "?").join(",");
+    const rows = getDb()
+      .prepare(`SELECT id, full_name FROM users WHERE id IN (${placeholders}) ORDER BY full_name`)
+      .all(...actor.adminScope) as { id: string; full_name: string }[];
+    viewableUsers = rows.map((r) => ({ id: r.id, fullName: r.full_name }));
+  }
+
+  // module determines which table related_entity_id points into — there's
+  // no single FK, so the name has to be resolved per-module rather than joined.
   const suggestionRows = getDb()
-    .prepare(`SELECT * FROM ai_suggestions WHERE user_id = ? ORDER BY generated_at DESC`)
+    .prepare(
+      `SELECT s.*,
+         CASE s.module
+           WHEN 'documents' THEN (SELECT title FROM documents WHERE id = s.related_entity_id)
+           WHEN 'calendar' THEN (SELECT title FROM events WHERE id = s.related_entity_id)
+           WHEN 'tasks' THEN (SELECT title FROM tasks WHERE id = s.related_entity_id)
+           ELSE NULL
+         END AS related_entity_title
+       FROM ai_suggestions s WHERE s.user_id = ? ORDER BY s.generated_at DESC`
+    )
     .all(actor.id) as {
     id: string;
     module: string | null;
@@ -34,6 +66,7 @@ export default async function AiSettingsPage() {
     accepted_at: string | null;
     feedback: string;
     related_entity_id: string | null;
+    related_entity_title: string | null;
   }[];
 
   const suggestions: SuggestionData[] = suggestionRows.map((row) => ({
@@ -46,6 +79,7 @@ export default async function AiSettingsPage() {
     acceptedAt: row.accepted_at,
     feedback: row.feedback as SuggestionData["feedback"],
     relatedEntityId: row.related_entity_id,
+    relatedEntityTitle: row.related_entity_title,
   }));
 
   return (
@@ -54,6 +88,8 @@ export default async function AiSettingsPage() {
       memories={memories}
       suggestions={suggestions}
       isSuperAdmin={actor.role === "super_admin"}
+      myUserId={actor.id}
+      viewableUsers={viewableUsers}
     />
   );
 }

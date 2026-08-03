@@ -23,6 +23,7 @@ interface DeviceRow {
   designated_folders: string | null;
   last_sync_at: string | null;
   added_at: string;
+  is_host_device: number;
 }
 
 function toResponseShape(row: DeviceRow) {
@@ -37,13 +38,14 @@ function toResponseShape(row: DeviceRow) {
     designatedFolders: row.designated_folders ? JSON.parse(row.designated_folders) : [],
     lastSyncAt: row.last_sync_at,
     addedAt: row.added_at,
+    isHostDevice: !!row.is_host_device,
   };
 }
 
 function loadDevice(id: string) {
   return getDb()
     .prepare(
-      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at
+      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at, d.is_host_device
        FROM devices d JOIN users u ON u.id = d.user_id WHERE d.id = ?`
     )
     .get(id) as DeviceRow | undefined;

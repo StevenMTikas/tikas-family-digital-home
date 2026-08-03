@@ -119,3 +119,52 @@ export function formatFullDate(dateTimeIso: string): string {
   const monthLabel = MONTH_LABELS[date.getMonth()]!.slice(0, 3);
   return `${dayLabel}, ${monthLabel} ${d}`;
 }
+
+// ── Month + Day views (Calendar.md's "Day and month calendar views" Future
+// Enhancement, built 2026-08-02) ────────────────────────────────────────
+
+/** The 1st of the month containing `date`. */
+export function getMonthStart(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+/** The Sunday on/before the 1st of the month — where the month grid starts, so leading days from the prior month fill the first row. */
+export function getMonthGridStart(date: Date): Date {
+  return getWeekStart(getMonthStart(date));
+}
+
+/** "August 2026" */
+export function formatMonthLabel(date: Date): string {
+  return `${MONTH_LABELS[date.getMonth()]} ${date.getFullYear()}`;
+}
+
+/** "Wednesday, August 2, 2026" — the Day view's header, spelled out (formatFullDate's "Mon, Jul 20" is the compact form used inside cards/modals). */
+export function formatDayHeading(date: Date): string {
+  const dayLabel = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][date.getDay()]!;
+  return `${dayLabel}, ${MONTH_LABELS[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
+export interface MonthDay {
+  date: number;
+  isoDate: string;
+  isToday: boolean;
+  isCurrentMonth: boolean;
+}
+
+/**
+ * A fixed 6-row (42-cell) grid starting from the Sunday on/before the 1st of
+ * the month, through however far into the next month that spans — a stable,
+ * predictable grid size rather than a dynamic 5-vs-6-row layout that would
+ * shift the page height month to month.
+ */
+export function getMonthGridDays(date: Date, today: Date = new Date()): MonthDay[] {
+  const gridStart = getMonthGridStart(date);
+  const todayIso = toISODate(toDateOnly(today));
+  const month = date.getMonth();
+  return Array.from({ length: 42 }, (_, i) => {
+    const day = new Date(gridStart);
+    day.setDate(day.getDate() + i);
+    const isoDate = toISODate(day);
+    return { date: day.getDate(), isoDate, isToday: isoDate === todayIso, isCurrentMonth: day.getMonth() === month };
+  });
+}

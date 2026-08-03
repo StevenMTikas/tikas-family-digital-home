@@ -4,7 +4,7 @@
 import type { FolderPermissionGrants, FolderAccessLevel, Role } from "@/lib/core/permissions";
 
 const VALID_LEVELS: FolderAccessLevel[] = ["view", "edit", "delete"];
-const VALID_ROLES: Role[] = ["super_admin", "admin", "basic_user"];
+const VALID_ROLES: Role[] = ["super_admin", "admin", "basic_user", "external_viewer"];
 
 /** Validates an arbitrary request body's `permissions` field into a well-formed FolderPermissionGrants, or null if absent/malformed. */
 export function parsePermissionsPatch(body: unknown): FolderPermissionGrants | null | undefined {

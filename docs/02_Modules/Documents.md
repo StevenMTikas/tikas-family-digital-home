@@ -20,10 +20,11 @@ Defines the Documents module — upload, categorization, sensitivity flagging, a
 ## Features
 
 - **AI-prompted categorization at upload.** When a document is uploaded, the AI asks the uploader for its category (e.g., tax, medical, school), consistent with the same prompting pattern used for Photos.
-- **Uploader sets sensitivity, Super Admin can override.** The uploader sets the `is_sensitive` flag at upload time. The Super Admin can override this flag later — either raising or lowering sensitivity — or make a document private, regardless of the uploader's original setting.
+- **Uploader sets sensitivity, Super Admin can override.** The uploader sets the `is_sensitive` flag at upload time. The Super Admin can override this flag later on **any** document, any time — either raising or lowering sensitivity — regardless of the uploader's original setting, from the Documents list's toggle or the Edit Document modal. (2026-07-31) A non-admin uploader can also change sensitivity on **their own** document after the fact, but only from the Edit Document modal (Content page, or reached via Accept on a categorization suggestion) — the list's toggle stays Super-Admin-only, so an ordinary family member has exactly one path to this, and only for what they uploaded. Enforced server-side (`PATCH /api/documents/[id]`) as "Super Admin, or the uploader" — the UI just doesn't surface the list toggle to anyone else.
 - **Download-only for MVP.** Opening a document downloads it; there's no in-app preview yet. In-app preview is a clearly planned near-term upgrade (see Future Enhancements).
 - **Standard folder permissions apply.** Uploading to a folder requires Edit access on that folder, same as any other content addition — nothing document-specific beyond what `Folder_Permissions.md` already defines.
 - **Search lives elsewhere.** Any search/filter across documents is covered in `Search.md` — this module doesn't duplicate that behavior.
+- **Pick from existing categories, or add a new one.** (2026-07-30) Editing a document's category (e.g. via Accept on an Advisor suggestion, `AI_Suggestions.md`) shows a single-select list of categories already in use, rather than a blank text box — avoids retyping/mistyping an existing one. A Super Admin can rename a category (cascades to every document using it) or delete one (blocked until nothing uses it) from their profile page ("Document Categories" section, `Users.md`). One category per document for now — see `Data_Model.md`'s Future Enhancements for multi-category.
 
 ## Screen Layout
 
@@ -46,7 +47,8 @@ Uses the existing **Document** entity from `Data_Model.md` — no new fields req
 
 - **Upload:** requires Edit access on the target folder (per `Folder_Permissions.md`) — same rule as any other content addition, no document-specific exception.
 - **View/Download:** requires View access on the folder containing the document.
-- **Sensitivity override:** Super Admin only.
+- **Sensitivity override:** Super Admin, on any document, from either entry point. The uploader, on their own document only, from the Edit Document modal only (2026-07-31).
+- **Category:** anyone who can see the document (View access to its folder) — no Edit access required. (2026-07-31) Folder Edit access is about adding/removing content; categorizing something already there is lighter-weight and shouldn't be blocked by it, especially for a document someone uploaded themselves into a shared folder they don't have Edit rights on.
 - **Delete:** requires the `delete_content` permission (per `Authorization.md`), same as any other content type.
 
 ## Dependencies

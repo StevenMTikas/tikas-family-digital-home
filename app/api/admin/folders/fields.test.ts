@@ -34,6 +34,12 @@ describe("parsePermissionsPatch", () => {
     });
   });
 
+  it("accepts external_viewer as a valid role-level grant", () => {
+    expect(parsePermissionsPatch({ permissions: { roles: { external_viewer: "view" } } })).toEqual({
+      roles: { external_viewer: "view" },
+    });
+  });
+
   it("treats a malformed permissions value as absent", () => {
     expect(parsePermissionsPatch({ permissions: "not-an-object" })).toBeUndefined();
   });

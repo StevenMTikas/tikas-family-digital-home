@@ -16,6 +16,18 @@ export function getLastAgentRunAt(agent: "guardian" | "advisor"): string | null 
   return row?.created_at ?? null;
 }
 
+/** Per-user due-check for memory-extraction.ts's daily pass — unlike Guardian/Advisor, this cadence is per-user, not household-wide. */
+export function getLastMemoryExtractionAt(userId: string): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT created_at FROM security_events
+       WHERE type = 'ai_interaction' AND user_id = ? AND json_extract(detail, '$.memoryExtraction') = 1
+       ORDER BY created_at DESC LIMIT 1`
+    )
+    .get(userId) as { created_at: string } | undefined;
+  return row?.created_at ?? null;
+}
+
 export function hoursSince(isoTimestamp: string, now: Date = new Date()): number {
   return (now.getTime() - new Date(isoTimestamp).getTime()) / (1000 * 60 * 60);
 }

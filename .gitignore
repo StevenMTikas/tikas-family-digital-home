@@ -6,6 +6,7 @@ build/
 /backups/
 connector/config.json
 *.db
+*.db.bak-*
 *.db-journal
 *.db-shm
 *.db-wal
@@ -15,3 +16,4 @@ connector/config.json
 .DS_Store
 *.log
 *.tsbuildinfo
+.claude/

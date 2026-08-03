@@ -9,6 +9,7 @@ import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser } from "@/lib/core/permissions";
 import { getWeekStart, toISODate, parseISODate } from "@/lib/calendar/dates";
+import { RECURRENCE_FREQUENCIES, topUpEventSeries, eventRecurrenceWindowEnd, type RecurrenceFrequency } from "@/lib/core/recurrence";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -26,6 +27,8 @@ interface EventRow {
   visibility: "public" | "private";
   category: EventCategory | null;
   reminder_lead_time: string | null;
+  recurrence_id: string | null;
+  recurrence_frequency: RecurrenceFrequency | null;
 }
 
 function getAssigneeIds(eventId: string): string[] {
@@ -49,6 +52,8 @@ function toEventResponse(row: EventRow, actorId: string, canEdit: boolean) {
     visibility: row.visibility,
     category: row.category,
     reminderLeadTime: row.reminder_lead_time,
+    recurrenceId: row.recurrence_id,
+    recurrenceFrequency: row.recurrence_frequency,
     createdBy: row.created_by,
     assigneeIds: getAssigneeIds(row.id),
     canEdit,
@@ -91,6 +96,7 @@ export async function POST(req: NextRequest) {
   const category = EVENT_CATEGORIES.includes(body?.category) ? (body.category as EventCategory) : null;
   const reminderLeadTime = typeof body?.reminderLeadTime === "string" ? body.reminderLeadTime : null;
   const assigneeIds = Array.isArray(body?.assigneeIds) ? body.assigneeIds.filter((id: unknown) => typeof id === "string") : [];
+  const recurrenceFrequency = RECURRENCE_FREQUENCIES.includes(body?.recurrence) ? (body.recurrence as RecurrenceFrequency) : null;
 
   if (!title || !dateTime) {
     return errorResponse("INVALID_INPUT", "Title and date/time are required.", 400);
@@ -101,12 +107,13 @@ export async function POST(req: NextRequest) {
 
   const db = getDb();
   const id = randomUUID();
+  const recurrenceId = recurrenceFrequency ? randomUUID() : null;
 
   const insert = db.transaction(() => {
     db.prepare(
-      `INSERT INTO events (id, title, description, date_time, created_by, visibility, category, reminder_lead_time)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, title, description, dateTime, actor.id, visibility, category, reminderLeadTime);
+      `INSERT INTO events (id, title, description, date_time, created_by, visibility, category, reminder_lead_time, recurrence_id, recurrence_frequency)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, title, description, dateTime, actor.id, visibility, category, reminderLeadTime, recurrenceId, recurrenceFrequency);
 
     const insertAssignment = db.prepare(
       `INSERT INTO event_assignments (event_id, user_id) VALUES (?, ?)`
@@ -114,6 +121,11 @@ export async function POST(req: NextRequest) {
     for (const userId of assigneeIds) insertAssignment.run(id, userId);
   });
   insert();
+
+  // Populate the rolling window of future occurrences right away, rather
+  // than making the user wait for the next hourly scheduler tick to see
+  // anything beyond the first occurrence they just created.
+  if (recurrenceId) topUpEventSeries(recurrenceId, eventRecurrenceWindowEnd());
 
   const row = db.prepare(`SELECT * FROM events WHERE id = ?`).get(id) as EventRow;
 

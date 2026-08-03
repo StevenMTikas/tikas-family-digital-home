@@ -3,6 +3,8 @@
 // Overview, whose initial data is fetched server-side directly (see
 // app/administration/page.tsx) since it's the tab shown on first load.
 
+import type { Role } from "@/lib/core/permissions/types";
+
 export class AdminApiError extends Error {}
 
 async function unwrap<T>(res: Response): Promise<T> {
@@ -10,6 +12,7 @@ async function unwrap<T>(res: Response): Promise<T> {
     const body = await res.json().catch(() => null);
     throw new AdminApiError(body?.error?.message ?? "Request failed.");
   }
+  if (res.status === 204) return undefined as T;
   return res.json();
 }
 
@@ -40,7 +43,7 @@ export async function fetchMonitoring(): Promise<{ checkedAt: string | null; hea
 export type FolderAccessLevel = "view" | "edit" | "delete";
 export interface FolderPermissionGrants {
   users?: Partial<Record<string, FolderAccessLevel>>;
-  roles?: Partial<Record<"super_admin" | "admin" | "basic_user", FolderAccessLevel>>;
+  roles?: Partial<Record<Role, FolderAccessLevel>>;
 }
 export interface FolderInfo {
   id: string;
@@ -184,9 +187,19 @@ export interface DeviceInfo {
   designatedFolders: FolderType[];
   lastSyncAt: string | null;
   addedAt: string;
+  isHostDevice: boolean;
 }
 export interface DeviceWithToken extends DeviceInfo {
   authToken: string;
+}
+
+export interface WatchedFolderPath {
+  id: string;
+  folderType: FolderType;
+  path: string;
+  addedAt: string;
+  lastScanStatus: "ok" | "not_found" | null;
+  lastScanAt: string | null;
 }
 
 export async function fetchDevices(): Promise<DeviceInfo[]> {
@@ -236,4 +249,67 @@ export async function regenerateDeviceToken(id: string): Promise<DeviceWithToken
       body: JSON.stringify({ regenerateToken: true }),
     })
   ) as Promise<DeviceWithToken>;
+}
+
+export async function fetchDeviceFolders(deviceId: string): Promise<WatchedFolderPath[]> {
+  return unwrap(await fetch(`/api/admin/devices/${deviceId}/folders`));
+}
+
+export async function addDeviceFolder(deviceId: string, folderType: FolderType, path: string): Promise<WatchedFolderPath> {
+  return unwrap(
+    await fetch(`/api/admin/devices/${deviceId}/folders`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ folderType, path }),
+    })
+  );
+}
+
+export async function removeDeviceFolder(deviceId: string, folderId: string): Promise<void> {
+  await unwrap(await fetch(`/api/admin/devices/${deviceId}/folders/${folderId}`, { method: "DELETE" }));
+}
+
+// ── External Viewers ───────────────────────────────────────────────
+export interface ExternalViewerInfo {
+  id: string;
+  username: string;
+  fullName: string;
+  boardAccess: boolean;
+  createdAt: string;
+}
+
+export async function fetchExternalViewers(): Promise<ExternalViewerInfo[]> {
+  return unwrap(await fetch("/api/admin/external-viewers"));
+}
+
+export async function inviteExternalViewer(input: {
+  fullName: string;
+  username: string;
+  password: string;
+  boardAccess: boolean;
+}): Promise<ExternalViewerInfo> {
+  return unwrap(
+    await fetch("/api/admin/external-viewers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    })
+  );
+}
+
+export async function updateExternalViewer(
+  id: string,
+  patch: { boardAccess?: boolean; fullName?: string; newPassword?: string }
+): Promise<ExternalViewerInfo> {
+  return unwrap(
+    await fetch(`/api/admin/external-viewers/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    })
+  );
+}
+
+export async function deleteExternalViewer(id: string): Promise<void> {
+  await unwrap(await fetch(`/api/admin/external-viewers/${id}`, { method: "DELETE" }));
 }

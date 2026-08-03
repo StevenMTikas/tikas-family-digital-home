@@ -15,14 +15,20 @@ import {
   deleteEvent,
   CalendarApiError,
   EVENT_CATEGORIES,
+  RECURRENCE_FREQUENCIES,
   type CalendarEvent,
   type EventCategory,
   type EventInput,
+  type RecurrenceFrequency,
+  type RecurrenceScope,
 } from "@/lib/api/calendar";
 import {
   getWeekStart,
   getWeekDays,
   formatWeekLabel,
+  getMonthGridDays,
+  formatMonthLabel,
+  formatDayHeading,
   toISODate,
   parseISODate,
   combineDateAndTime,
@@ -34,11 +40,21 @@ import { FAMILY_EVENT_COLOR } from "@/lib/calendar/colors";
 
 export interface CalendarEventData extends CalendarEvent {}
 
+export type CalendarView = "week" | "month" | "day";
+
 export interface FamilyMemberOption {
   id: string;
   fullName: string;
   calendarColor: string | null;
 }
+
+const RECURRENCE_LABELS: Record<RecurrenceFrequency, string> = {
+  daily: "Daily",
+  weekly: "Weekly",
+  biweekly: "Every 2 weeks",
+  monthly: "Monthly",
+  yearly: "Yearly",
+};
 
 const REMINDER_OPTIONS = [
   "15 minutes before",
@@ -67,48 +83,101 @@ function eventDisplay(event: CalendarEventData, membersById: Map<string, FamilyM
 }
 
 export default function CalendarPageClient({
-  weekStartIso,
+  view,
+  anchorDateIso,
   events,
   familyMembers,
   currentUserId,
 }: {
-  weekStartIso: string;
+  view: CalendarView;
+  anchorDateIso: string;
   events: CalendarEventData[];
   familyMembers: FamilyMemberOption[];
   currentUserId: string;
 }) {
   const router = useRouter();
-  const weekStart = parseISODate(weekStartIso, new Date());
-  const weekDays = useMemo(() => getWeekDays(weekStart), [weekStartIso]);
+  const anchorDate = parseISODate(anchorDateIso, new Date());
+  const weekStart = useMemo(() => getWeekStart(anchorDate), [anchorDateIso]);
+  const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
+  const monthDays = useMemo(() => getMonthGridDays(anchorDate), [anchorDateIso]);
   const membersById = useMemo(() => new Map(familyMembers.map((m) => [m.id, m])), [familyMembers]);
 
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [formMode, setFormMode] = useState<"create" | "edit" | null>(null);
+  // Default is everyone (null) — clicking a name filters to just them; clicking the same name again clears it.
+  const [filterPersonId, setFilterPersonId] = useState<string | null>(null);
 
-  function goToWeek(newWeekStartIso: string) {
-    router.push(`/calendar?week=${newWeekStartIso}`);
+  function goTo(newView: CalendarView, dateIso: string) {
+    router.push(`/calendar?view=${newView}&date=${dateIso}`);
   }
 
   function shiftWeek(days: number) {
     const d = new Date(weekStart);
     d.setDate(d.getDate() + days);
-    goToWeek(toISODate(getWeekStart(d)));
+    goTo("week", toISODate(getWeekStart(d)));
   }
 
+  function shiftDay(days: number) {
+    const d = new Date(anchorDate);
+    d.setDate(d.getDate() + days);
+    goTo("day", toISODate(d));
+  }
+
+  function shiftMonth(months: number) {
+    const d = new Date(anchorDate.getFullYear(), anchorDate.getMonth() + months, 1);
+    goTo("month", toISODate(d));
+  }
+
+  function goToToday() {
+    goTo(view, toISODate(new Date()));
+  }
+
+  const visibleEvents = useMemo(
+    () => (filterPersonId ? events.filter((e) => e.assigneeIds.includes(filterPersonId)) : events),
+    [events, filterPersonId]
+  );
+
   const eventsByDay: CalendarEventData[][] = weekDays.map((day) =>
-    events
+    visibleEvents
+      .filter((e) => e.dateTime.startsWith(day.isoDate))
+      .sort((a, b) => a.dateTime.localeCompare(b.dateTime))
+  );
+
+  const dayViewEvents = visibleEvents
+    .filter((e) => e.dateTime.startsWith(anchorDateIso))
+    .sort((a, b) => a.dateTime.localeCompare(b.dateTime));
+
+  const monthEventsByDay: CalendarEventData[][] = monthDays.map((day) =>
+    visibleEvents
       .filter((e) => e.dateTime.startsWith(day.isoDate))
       .sort((a, b) => a.dateTime.localeCompare(b.dateTime))
   );
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;
 
+  const heading =
+    view === "month" ? formatMonthLabel(anchorDate) : view === "day" ? formatDayHeading(anchorDate) : formatWeekLabel(weekStart);
+
   return (
     <main className="p-6 max-w-[1000px]">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-medium">Calendar</h1>
-          <p className="text-[12.5px] text-ink-muted mt-0.5">{formatWeekLabel(weekStart)}</p>
+          <p className="text-[12.5px] text-ink-muted mt-0.5">{heading}</p>
+        </div>
+        <div className="flex rounded-xl overflow-hidden border border-ink/15">
+          {(["week", "month", "day"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => goTo(v, anchorDateIso)}
+              className={`px-4 py-1.5 text-xs font-semibold capitalize ${
+                view === v ? "bg-accent-strong text-white" : "bg-surface text-ink-muted"
+              }`}
+            >
+              {v}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -116,24 +185,24 @@ export default function CalendarPageClient({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => shiftWeek(-7)}
+            onClick={() => (view === "month" ? shiftMonth(-1) : view === "day" ? shiftDay(-1) : shiftWeek(-7))}
             className="w-[34px] h-[34px] rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
-            aria-label="Previous week"
+            aria-label={`Previous ${view}`}
           >
             ‹
           </button>
           <button
             type="button"
-            onClick={() => goToWeek(toISODate(getWeekStart(new Date())))}
+            onClick={goToToday}
             className="h-[34px] px-4 rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] text-[13px] font-semibold text-ink"
           >
             Today
           </button>
           <button
             type="button"
-            onClick={() => shiftWeek(7)}
+            onClick={() => (view === "month" ? shiftMonth(1) : view === "day" ? shiftDay(1) : shiftWeek(7))}
             className="w-[34px] h-[34px] rounded-xl bg-surface shadow-[0_4px_12px_rgba(58,52,44,0.05)] flex items-center justify-center"
-            aria-label="Next week"
+            aria-label={`Next ${view}`}
           >
             ›
           </button>
@@ -143,12 +212,25 @@ export default function CalendarPageClient({
           <div className="flex items-center gap-4 pr-1.5">
             {familyMembers
               .filter((m) => m.calendarColor)
-              .map((m) => (
-                <div key={m.id} className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: m.calendarColor! }} />
-                  <div className="text-[11.5px] text-ink-muted">{m.fullName}</div>
-                </div>
-              ))}
+              .map((m) => {
+                const active = filterPersonId === m.id;
+                const dimmed = filterPersonId !== null && !active;
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setFilterPersonId(active ? null : m.id)}
+                    aria-pressed={active}
+                    title={active ? `Showing only ${m.fullName} — click to show everyone` : `Show only ${m.fullName}`}
+                    className={`flex items-center gap-1.5 px-1.5 py-0.5 rounded-full ${active ? "bg-accent/[0.15]" : ""} ${
+                      dimmed ? "opacity-45" : ""
+                    }`}
+                  >
+                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: m.calendarColor! }} />
+                    <div className={`text-[11.5px] ${active ? "text-ink font-semibold" : "text-ink-muted"}`}>{m.fullName}</div>
+                  </button>
+                );
+              })}
             <div className="flex items-center gap-1.5">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: FAMILY_EVENT_COLOR }} />
               <div className="text-[11.5px] text-ink-muted">Family</div>
@@ -164,53 +246,146 @@ export default function CalendarPageClient({
         </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-3">
-        {weekDays.map((day, i) => (
-          <div
-            key={day.isoDate}
-            className="bg-surface rounded-2xl p-3 shadow-[0_8px_20px_rgba(58,52,44,0.05)] min-h-[280px]"
-          >
-            <div className="flex items-center gap-2 pb-2.5 mb-2 border-b border-ink/[0.07]">
-              <div className="text-[10.5px] font-semibold tracking-wide text-ink-muted uppercase">
-                {day.label}
+      {view === "week" && (
+        <div className="grid grid-cols-7 gap-3">
+          {weekDays.map((day, i) => (
+            <div
+              key={day.isoDate}
+              className="bg-surface rounded-2xl p-3 shadow-[0_8px_20px_rgba(58,52,44,0.05)] min-h-[280px]"
+            >
+              <div className="flex items-center gap-2 pb-2.5 mb-2 border-b border-ink/[0.07]">
+                <div className="text-[10.5px] font-semibold tracking-wide text-ink-muted uppercase">
+                  {day.label}
+                </div>
+                <div
+                  className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs font-semibold ${
+                    // bg-accent fails WCAG AA for white text (~2.9:1, Design_Language.md) — accent-strong passes (~4.66:1)
+                    day.isToday ? "bg-accent-strong text-white" : "text-ink"
+                  }`}
+                >
+                  {day.date}
+                </div>
               </div>
+              <div className="flex flex-col gap-2">
+                {eventsByDay[i]!.length === 0 ? (
+                  <div className="text-[11.5px] text-ink-muted opacity-60 py-2 px-0.5">No events</div>
+                ) : (
+                  eventsByDay[i]!.map((event) => {
+                    const { color } = eventDisplay(event, membersById);
+                    return (
+                      <div
+                        key={event.id}
+                        onClick={() => setSelectedEventId(event.id)}
+                        className="rounded-lg py-2 px-2.5 cursor-pointer"
+                        style={{ backgroundColor: hexToRgba(color, 0.12), borderLeft: `3px solid ${color}` }}
+                      >
+                        <div className="flex items-center gap-1 text-[10.5px] text-ink-muted">
+                          {event.visibility === "private" && <span>🔒</span>}
+                          <span>{formatEventTime(event.dateTime)}</span>
+                        </div>
+                        <div className="text-[12.5px] font-semibold text-ink mt-0.5 leading-tight">
+                          {event.title}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {view === "day" && (
+        <div className="bg-surface rounded-2xl p-5 shadow-[0_8px_20px_rgba(58,52,44,0.05)] min-h-[280px] max-w-[520px]">
+          {dayViewEvents.length === 0 ? (
+            <div className="text-[13px] text-ink-muted opacity-60 py-4 px-1">No events</div>
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {dayViewEvents.map((event) => {
+                const { color, personLabel } = eventDisplay(event, membersById);
+                return (
+                  <div
+                    key={event.id}
+                    onClick={() => setSelectedEventId(event.id)}
+                    className="rounded-xl py-3 px-3.5 cursor-pointer"
+                    style={{ backgroundColor: hexToRgba(color, 0.12), borderLeft: `3px solid ${color}` }}
+                  >
+                    <div className="flex items-center gap-1.5 text-[11.5px] text-ink-muted">
+                      {event.visibility === "private" && <span>🔒</span>}
+                      <span>{formatEventTime(event.dateTime)}</span>
+                      <span>·</span>
+                      <span>{personLabel}</span>
+                    </div>
+                    <div className="text-sm font-semibold text-ink mt-1 leading-tight">{event.title}</div>
+                    {event.description && (
+                      <div className="text-[12.5px] text-ink-muted mt-1 leading-relaxed">{event.description}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "month" && (
+        <div className="grid grid-cols-7 gap-2">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+            <div key={label} className="text-[10.5px] font-semibold tracking-wide text-ink-muted uppercase text-center pb-1">
+              {label}
+            </div>
+          ))}
+          {monthDays.map((day, i) => {
+            const dayEvents = monthEventsByDay[i]!;
+            const MAX_VISIBLE = 3;
+            return (
               <div
-                className={`w-[22px] h-[22px] rounded-full flex items-center justify-center text-xs font-semibold ${
-                  // bg-accent fails WCAG AA for white text (~2.9:1, Design_Language.md) — accent-strong passes (~4.66:1)
-                  day.isToday ? "bg-accent-strong text-white" : "text-ink"
+                key={day.isoDate}
+                className={`bg-surface rounded-xl p-1.5 shadow-[0_4px_12px_rgba(58,52,44,0.05)] min-h-[92px] ${
+                  day.isCurrentMonth ? "" : "opacity-45"
                 }`}
               >
-                {day.date}
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              {eventsByDay[i]!.length === 0 ? (
-                <div className="text-[11.5px] text-ink-muted opacity-60 py-2 px-0.5">No events</div>
-              ) : (
-                eventsByDay[i]!.map((event) => {
-                  const { color } = eventDisplay(event, membersById);
-                  return (
-                    <div
-                      key={event.id}
-                      onClick={() => setSelectedEventId(event.id)}
-                      className="rounded-lg py-2 px-2.5 cursor-pointer"
-                      style={{ backgroundColor: hexToRgba(color, 0.12), borderLeft: `3px solid ${color}` }}
-                    >
-                      <div className="flex items-center gap-1 text-[10.5px] text-ink-muted">
-                        {event.visibility === "private" && <span>🔒</span>}
-                        <span>{formatEventTime(event.dateTime)}</span>
-                      </div>
-                      <div className="text-[12.5px] font-semibold text-ink mt-0.5 leading-tight">
+                <button
+                  type="button"
+                  onClick={() => goTo("day", day.isoDate)}
+                  aria-label={`View ${day.isoDate}`}
+                  className={`w-[20px] h-[20px] rounded-full flex items-center justify-center text-[11px] font-semibold ${
+                    day.isToday ? "bg-accent-strong text-white" : "text-ink"
+                  }`}
+                >
+                  {day.date}
+                </button>
+                <div className="flex flex-col gap-1 mt-1">
+                  {dayEvents.slice(0, MAX_VISIBLE).map((event) => {
+                    const { color } = eventDisplay(event, membersById);
+                    return (
+                      <div
+                        key={event.id}
+                        onClick={() => setSelectedEventId(event.id)}
+                        className="text-[10px] leading-tight px-1.5 py-0.5 rounded cursor-pointer truncate"
+                        style={{ backgroundColor: hexToRgba(color, 0.15), borderLeft: `2px solid ${color}` }}
+                        title={event.title}
+                      >
                         {event.title}
                       </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
+                    );
+                  })}
+                  {dayEvents.length > MAX_VISIBLE && (
+                    <button
+                      type="button"
+                      onClick={() => goTo("day", day.isoDate)}
+                      className="text-[10px] text-ink-muted text-left px-1.5"
+                    >
+                      +{dayEvents.length - MAX_VISIBLE} more
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {selectedEvent && (
         <EventDetailModal
@@ -261,12 +436,13 @@ function EventDetailModal({
   useEscapeKey(true, onClose);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
-  async function handleDelete() {
+  async function handleDelete(scope: RecurrenceScope) {
     setDeleting(true);
     setError(null);
     try {
-      await deleteEvent(event.id);
+      await deleteEvent(event.id, scope);
       onDeleted();
     } catch (err) {
       setError(err instanceof CalendarApiError ? err.message : "Something went wrong. Try again.");
@@ -303,6 +479,11 @@ function EventDetailModal({
               {event.category}
             </div>
           )}
+          {event.recurrenceFrequency && (
+            <div className="text-[11.5px] text-ink-muted bg-base px-2.5 py-1 rounded-full">
+              Repeats {RECURRENCE_LABELS[event.recurrenceFrequency]}
+            </div>
+          )}
           <div className="text-[11.5px] text-ink-muted bg-base px-2.5 py-1 rounded-full">
             Reminder: {event.reminderLeadTime ?? "None"}
           </div>
@@ -310,30 +491,65 @@ function EventDetailModal({
 
         {error && <p className="text-xs text-urgent mt-3">{error}</p>}
 
-        <div className="flex items-center justify-end gap-3 mt-6">
-          {event.canEdit && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className="text-[13px] font-semibold text-urgent disabled:opacity-60"
-            >
-              Delete
+        {confirmingDelete ? (
+          <div className="mt-6">
+            <p className="text-[12.5px] text-ink-muted mb-2.5">Delete which events?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleDelete("this")}
+                disabled={deleting}
+                className="text-[13px] font-semibold text-urgent text-left disabled:opacity-60"
+              >
+                Just this event
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete("future")}
+                disabled={deleting}
+                className="text-[13px] font-semibold text-urgent text-left disabled:opacity-60"
+              >
+                This and future events
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDelete("series")}
+                disabled={deleting}
+                className="text-[13px] font-semibold text-urgent text-left disabled:opacity-60"
+              >
+                All events in the series
+              </button>
+            </div>
+            <button type="button" onClick={() => setConfirmingDelete(false)} className="text-[12.5px] text-ink-muted mt-3">
+              Cancel
             </button>
-          )}
-          <button type="button" onClick={onClose} className="text-[13px] text-ink-muted">
-            Close
-          </button>
-          {event.canEdit && (
-            <button
-              type="button"
-              onClick={onEdit}
-              className="text-[13px] font-semibold text-white bg-accent-strong px-4.5 py-2 rounded-full"
-            >
-              Edit
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-3 mt-6">
+            {event.canEdit && (
+              <button
+                type="button"
+                onClick={() => (event.recurrenceId ? setConfirmingDelete(true) : handleDelete("this"))}
+                disabled={deleting}
+                className="text-[13px] font-semibold text-urgent disabled:opacity-60"
+              >
+                Delete
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="text-[13px] text-ink-muted">
+              Close
             </button>
-          )}
-        </div>
+            {event.canEdit && (
+              <button
+                type="button"
+                onClick={onEdit}
+                className="text-[13px] font-semibold text-white bg-accent-strong px-4.5 py-2 rounded-full"
+              >
+                Edit
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -367,14 +583,16 @@ function EventFormModal({
   const [visibility, setVisibility] = useState<"public" | "private">(initial?.visibility ?? "public");
   const [category, setCategory] = useState<string>(initial?.category ?? "");
   const [reminderLeadTime, setReminderLeadTime] = useState(initial?.reminderLeadTime ?? REMINDER_OPTIONS[0]);
+  const [recurrence, setRecurrence] = useState<RecurrenceFrequency | "">(initial?.recurrenceFrequency ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingSaveScope, setConfirmingSaveScope] = useState(false);
 
   function toggleAssignee(id: string) {
     setAssigneeIds((prev) => (prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]));
   }
 
-  async function handleSave() {
+  async function handleSave(editScope: RecurrenceScope) {
     if (!title.trim() || assigneeIds.length === 0) {
       setError("Title and at least one assignee are required.");
       return;
@@ -389,12 +607,13 @@ function EventFormModal({
       category: category ? (category as EventCategory) : null,
       reminderLeadTime,
       assigneeIds,
+      recurrence: recurrence || null,
     };
     try {
       if (mode === "create") {
         await createEvent(input);
       } else if (initial) {
-        await updateEvent(initial.id, input);
+        await updateEvent(initial.id, input, editScope);
       }
       onSaved();
     } catch (err) {
@@ -534,6 +753,31 @@ function EventFormModal({
               ))}
             </select>
           </div>
+          {mode === "create" ? (
+            <div>
+              <label className="block text-xs font-semibold text-ink mb-1.5">Repeats</label>
+              <select
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value as RecurrenceFrequency | "")}
+                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+              >
+                <option value="">Does not repeat</option>
+                {RECURRENCE_FREQUENCIES.map((f) => (
+                  <option key={f} value={f}>
+                    {RECURRENCE_LABELS[f]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            initial?.recurrenceFrequency && (
+              <p className="text-[12px] text-ink-muted">
+                Repeats {RECURRENCE_LABELS[initial.recurrenceFrequency]} — can&apos;t be changed here; delete this
+                series and create a new one to change how often it repeats. Date/time changes below only apply to
+                this occurrence.
+              </p>
+            )
+          )}
           <div>
             <label className="block text-xs font-semibold text-ink mb-1.5">Reminder</label>
             <select
@@ -550,19 +794,58 @@ function EventFormModal({
 
         {error && <p className="text-xs text-urgent mt-3">{error}</p>}
 
-        <div className="flex items-center justify-end gap-3 mt-6">
-          <button type="button" onClick={onClose} className="text-[13px] text-ink-muted">
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-70"
-          >
-            {saving ? "Saving…" : "Save Event"}
-          </button>
-        </div>
+        {confirmingSaveScope ? (
+          <div className="mt-4">
+            <p className="text-[12.5px] text-ink-muted mb-2.5">Apply these changes to which events?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => handleSave("this")}
+                disabled={saving}
+                className="text-[13px] font-semibold text-ink text-left disabled:opacity-60"
+              >
+                Just this event
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave("future")}
+                disabled={saving}
+                className="text-[13px] font-semibold text-ink text-left disabled:opacity-60"
+              >
+                This and future events
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSave("series")}
+                disabled={saving}
+                className="text-[13px] font-semibold text-ink text-left disabled:opacity-60"
+              >
+                All events in the series
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setConfirmingSaveScope(false)}
+              className="text-[12.5px] text-ink-muted mt-3"
+            >
+              Back
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-end gap-3 mt-6">
+            <button type="button" onClick={onClose} className="text-[13px] text-ink-muted">
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => (mode === "edit" && initial?.recurrenceId ? setConfirmingSaveScope(true) : handleSave("this"))}
+              disabled={saving}
+              className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-70"
+            >
+              {saving ? "Saving…" : "Save Event"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

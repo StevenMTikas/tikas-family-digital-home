@@ -9,6 +9,8 @@ import { useRouter } from "next/navigation";
 import {
   setAiEnabled,
   flagAiMemoryEntry,
+  editAiMemoryEntry,
+  getAiMemoryFor,
   giveSuggestionFeedback,
   AiSettingsApiError,
   type AiMemoryEntry,
@@ -16,6 +18,11 @@ import {
 } from "@/lib/api/ai-settings";
 
 export interface SuggestionData extends AiSuggestionEntry {}
+
+export interface ViewableUser {
+  id: string;
+  fullName: string;
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   preferences: "Preferences",
@@ -28,15 +35,24 @@ export default function AiSettingsPageClient({
   memories,
   suggestions,
   isSuperAdmin,
+  myUserId,
+  viewableUsers,
 }: {
   initialAiEnabled: boolean;
   memories: AiMemoryEntry[];
   suggestions: SuggestionData[];
   isSuperAdmin: boolean;
+  myUserId: string;
+  viewableUsers: ViewableUser[];
 }) {
   const router = useRouter();
   const [aiEnabled, setAiEnabledState] = useState(initialAiEnabled);
   const [error, setError] = useState<string | null>(null);
+  const [viewingUserId, setViewingUserId] = useState(myUserId);
+  const [viewedMemories, setViewedMemories] = useState(memories);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
   async function handleToggle() {
     const next = !aiEnabled;
@@ -50,11 +66,43 @@ export default function AiSettingsPageClient({
     }
   }
 
+  async function loadMemoriesFor(userId: string) {
+    setMemoriesLoading(true);
+    setError(null);
+    try {
+      const result = await getAiMemoryFor(userId === myUserId ? undefined : userId);
+      setViewedMemories(result);
+    } catch (err) {
+      setError(err instanceof AiSettingsApiError ? err.message : "Couldn't load that person's AI Memory.");
+    } finally {
+      setMemoriesLoading(false);
+    }
+  }
+
+  async function handleViewingChange(userId: string) {
+    setViewingUserId(userId);
+    setEditingId(null);
+    await loadMemoriesFor(userId);
+  }
+
   async function handleFlag(id: string, currentlyFlagged: boolean) {
     setError(null);
     try {
       await flagAiMemoryEntry(id, !currentlyFlagged);
-      router.refresh();
+      if (viewingUserId === myUserId) router.refresh();
+      await loadMemoriesFor(viewingUserId);
+    } catch (err) {
+      setError(err instanceof AiSettingsApiError ? err.message : "Something went wrong.");
+    }
+  }
+
+  async function handleSaveEdit(id: string) {
+    setError(null);
+    try {
+      await editAiMemoryEntry(id, editText);
+      setEditingId(null);
+      if (viewingUserId === myUserId) router.refresh();
+      await loadMemoriesFor(viewingUserId);
     } catch (err) {
       setError(err instanceof AiSettingsApiError ? err.message : "Something went wrong.");
     }
@@ -70,11 +118,12 @@ export default function AiSettingsPageClient({
     }
   }
 
-  const grouped = memories.reduce<Record<string, AiMemoryEntry[]>>((acc, m) => {
+  const grouped = viewedMemories.reduce<Record<string, AiMemoryEntry[]>>((acc, m) => {
     const key = m.category ?? "relationships_context";
     (acc[key] ??= []).push(m);
     return acc;
   }, {});
+  const viewingSelf = viewingUserId === myUserId;
 
   return (
     <main className="p-6 max-w-[720px]">
@@ -109,13 +158,34 @@ export default function AiSettingsPageClient({
       </div>
 
       <div className="bg-surface rounded-2xl p-6 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mt-5">
-        <div className="text-sm font-semibold text-ink mb-1">What the AI Knows About Me</div>
-        {!isSuperAdmin && (
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <div className="text-sm font-semibold text-ink">
+            What the AI Knows {viewingSelf ? "About Me" : `About ${viewableUsers.find((u) => u.id === viewingUserId)?.fullName ?? ""}`}
+          </div>
+          {viewableUsers.length > 0 && (
+            <select
+              aria-label="Viewing whose AI Memory"
+              value={viewingUserId}
+              onChange={(e) => handleViewingChange(e.target.value)}
+              className="text-[11px] text-ink-muted bg-base rounded-full px-2.5 py-1 border border-ink/10"
+            >
+              <option value={myUserId}>Myself</option>
+              {viewableUsers.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.fullName}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+        {viewingSelf && !isSuperAdmin && (
           <p className="text-xs text-ink-muted mb-3">
             You can flag anything that looks wrong — only the Super Admin can edit or remove entries.
           </p>
         )}
-        {memories.length === 0 ? (
+        {memoriesLoading ? (
+          <p className="text-xs text-ink-muted">Loading…</p>
+        ) : viewedMemories.length === 0 ? (
           <p className="text-xs text-ink-muted">Nothing stored yet.</p>
         ) : (
           Object.entries(grouped).map(([category, entries]) => (
@@ -126,19 +196,57 @@ export default function AiSettingsPageClient({
               <div className="flex flex-col gap-2">
                 {entries.map((m) => (
                   <div key={m.id} className="flex items-center justify-between gap-3 py-2 border-t border-ink/[0.07] first:border-t-0">
-                    <div className="text-[13px] text-ink flex items-center gap-1.5">
-                      {m.isSensitive && <span className="text-[10px]">🔒</span>}
-                      {m.fact}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleFlag(m.id, m.flagged)}
-                      className={`text-[11px] shrink-0 px-2.5 py-1 rounded-full ${
-                        m.flagged ? "text-urgent bg-urgent/[0.12]" : "text-ink-muted bg-base"
-                      }`}
-                    >
-                      {m.flagged ? "Flagged" : "Flag"}
-                    </button>
+                    {editingId === m.id ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editText}
+                          onChange={(e) => setEditText(e.target.value)}
+                          autoFocus
+                          className="flex-1 text-[13px] text-ink px-2 py-1 rounded-lg border border-ink/15 focus:outline-none focus:ring-2 focus:ring-accent/40"
+                        />
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button type="button" onClick={() => handleSaveEdit(m.id)} className="text-[11px] font-semibold text-accent-strong">
+                            Save
+                          </button>
+                          <button type="button" onClick={() => setEditingId(null)} className="text-[11px] text-ink-muted">
+                            Cancel
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[13px] text-ink flex items-center gap-1.5">
+                          {m.isSensitive && <span className="text-[10px]">🔒</span>}
+                          {m.fact}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {isSuperAdmin && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingId(m.id);
+                                setEditText(m.fact);
+                              }}
+                              className="text-[11px] text-ink-muted underline"
+                            >
+                              Edit
+                            </button>
+                          )}
+                          {viewingSelf && (
+                            <button
+                              type="button"
+                              onClick={() => handleFlag(m.id, m.flagged)}
+                              className={`text-[11px] px-2.5 py-1 rounded-full ${
+                                m.flagged ? "text-urgent bg-urgent/[0.12]" : "text-ink-muted bg-base"
+                              }`}
+                            >
+                              {m.flagged ? "Flagged" : "Flag"}
+                            </button>
+                          )}
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -155,6 +263,9 @@ export default function AiSettingsPageClient({
           <div className="flex flex-col gap-3">
             {suggestions.map((s) => (
               <div key={s.id} className="py-2.5 border-t border-ink/[0.07] first:border-t-0">
+                {s.relatedEntityTitle && (
+                  <div className="text-[11px] font-semibold text-ink-muted mb-0.5">{s.relatedEntityTitle}</div>
+                )}
                 <div className="text-[13px] text-ink">{s.content}</div>
                 <div className="flex items-center justify-between mt-1.5">
                   <div className="text-[11px] text-ink-muted">

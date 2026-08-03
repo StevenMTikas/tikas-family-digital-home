@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
-import { generateAuthToken, FOLDER_TYPES, unsupportedFolderTypesFor, type FolderType } from "@/lib/core/connectors";
+import { generateAuthToken, ensureHostDevice, FOLDER_TYPES, unsupportedFolderTypesFor, type FolderType } from "@/lib/core/connectors";
 import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
@@ -25,6 +25,7 @@ interface DeviceRow {
   designated_folders: string | null;
   last_sync_at: string | null;
   added_at: string;
+  is_host_device: number;
 }
 
 function toResponseShape(row: DeviceRow) {
@@ -39,6 +40,7 @@ function toResponseShape(row: DeviceRow) {
     designatedFolders: row.designated_folders ? JSON.parse(row.designated_folders) : [],
     lastSyncAt: row.last_sync_at,
     addedAt: row.added_at,
+    isHostDevice: !!row.is_host_device,
   };
 }
 
@@ -63,9 +65,14 @@ export async function GET(req: NextRequest) {
   const { error } = await requireSuperAdmin(req);
   if (error) return error;
 
+  // Idempotent — creates the host device row on first view of this tab if
+  // it doesn't already exist, so folder management for "this computer" is
+  // available immediately rather than only after the first scheduler tick.
+  ensureHostDevice();
+
   const rows = getDb()
     .prepare(
-      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at
+      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at, d.is_host_device
        FROM devices d JOIN users u ON u.id = d.user_id
        ORDER BY d.added_at DESC`
     )
@@ -117,7 +124,7 @@ export async function POST(req: NextRequest) {
 
   const row = db
     .prepare(
-      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at
+      `SELECT d.id, d.user_id, u.full_name, d.device_type, d.device_name, d.status, d.designated_folders, d.last_sync_at, d.added_at, d.is_host_device
        FROM devices d JOIN users u ON u.id = d.user_id WHERE d.id = ?`
     )
     .get(id) as DeviceRow;

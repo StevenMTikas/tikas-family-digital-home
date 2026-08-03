@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
   const todayIso = toISODate(new Date());
   const tomorrowIso = toISODate(new Date(Date.now() + 24 * 60 * 60 * 1000));
 
-  const users = db.prepare(`SELECT id, full_name, calendar_color FROM users`).all() as {
+  const users = db.prepare(`SELECT id, full_name, calendar_color FROM users WHERE role != 'external_viewer'`).all() as {
     id: string;
     full_name: string;
     calendar_color: string | null;

@@ -42,7 +42,11 @@ non-technical installer is a future/commercial-version idea, not built).
    Edit `config.json`:
    - `hostUrl` — where the app is reachable on your home network (e.g. `http://192.168.1.20:3000`).
    - `deviceId` / `deviceToken` — from step 1.
-   - `designatedFolders` — real paths on this computer for `camera_photos` and/or `documents`. Only include the ones you checked in step 1.
+   - `designatedFolders` — real paths on this computer for `camera_photos` and/or `documents`. Only include the ones you checked in step 1. Each entry can be a single path (a string) or, to sync more than one folder under the same type, an array of paths — e.g.:
+     ```json
+     "documents": ["C:\\Users\\YourName\\Documents", "C:\\Users\\YourName\\Desktop\\School Files"]
+     ```
+   - **These are only a fallback now.** The Super Admin can also set/change this device's watched folders directly from the Admin dashboard (Devices tab) — this connector checks in with the host every few minutes and uses whatever the dashboard has configured, for any folder type the dashboard has anything set for. `designatedFolders` in this file still applies to a folder type the dashboard hasn't touched, so it's still worth filling in at first setup, but don't expect to have to keep editing this file by hand going forward.
 4. **Run it:**
    ```bash
    npm start

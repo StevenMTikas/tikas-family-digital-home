@@ -22,7 +22,7 @@ Defines the behavior of the Advisor — the AI role responsible for proactive, t
 ### Trigger Model: Event-Driven + Weekly Check
 
 - **Primary trigger: specific events.** The Advisor generates a suggestion when something happens that warrants one — a new document uploaded, a calendar gap detected, a task left unassigned, and similar (see Suggestion Types below).
-- **Secondary trigger: a weekly check.** In addition to event-driven suggestions, the Advisor runs a broader review on a weekly cadence to catch things that build up slowly and wouldn't otherwise trigger an event (e.g., a Family Knowledge item that hasn't been reviewed in months).
+- **Secondary trigger: a weekly check.** In addition to event-driven suggestions, the Advisor runs a broader review on a weekly cadence to catch things that build up slowly and wouldn't otherwise trigger an event (e.g., a Family Knowledge item that hasn't been reviewed in months). Restricted to a 2–3am local-server-time window (`scripts/scheduler-hourly.ts`'s `ADVISOR_QUIET_HOURS`) rather than firing whenever the 7-day mark happens to land — a first-time run against a large backlog is genuinely CPU-heavy (confirmed live: ~2 hours for ~1,700 individual LLM calls), and the household's Super Admin does daytime remote tech support from this machine.
 
 ### Display Locations & Limits
 

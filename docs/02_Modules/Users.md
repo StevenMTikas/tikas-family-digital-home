@@ -24,12 +24,14 @@ Defines the Users module — profile self-editing, how the Super Admin creates n
 - **Add User flow (Super Admin only):** the Super Admin fills out a new account's required information (name, relationship, date of birth, initial username/password, role) to create the account. The new family member then logs in with those initial credentials (per `Authentication.md`).
 - **Family visibility:** any family member can view basic profile info (name, photo, relationship, hobbies/interests) for every other family member — this is a "who's who" view, not a private one.
 - **Device view (read-only for the user):** a user can see the device(s) linked to their own account, but cannot add, remove, or edit them — that remains admin-only, managed through the Administration module (per `Security_Architecture.md`'s device trust model).
+- **Add Connection tab (2026-08-02):** a launcher for outside-account connections the user can make themselves (currently just Email, `Email.md`) — closes a real gap where `/email` had no link anywhere in the app. Visible to every user, not just admins, since connecting one's own account needs no elevated permission (`Email.md`'s Standing Integration Connection model). A plain link out to each connection's own dedicated page, not an embedded connect form.
 
 ## Screen Layout
 
-- **My Profile:** shows and allows editing of self-editable fields (photo, contact info, hobbies/interests); shows admin-only fields as read-only display.
+- **My Profile:** shows and allows editing of self-editable fields (photo, contact info, hobbies/interests); shows admin-only fields as read-only display. Also includes a "Document Categories" section (2026-07-30) — visible to everyone as a plain list, with rename/delete controls shown only for the Super Admin (see `Documents.md`).
 - **My Devices:** a simple list of the device(s) linked to this account (device name/type, trusted status) — view-only, with a note that device changes must go through an admin.
 - **Family Members:** a list/grid of all family members showing basic profile info (name, photo, relationship, hobbies/interests) — viewable by anyone.
+- **Add Connection:** a card per available connection type (currently one: Email) linking out to its own page — see Features above.
 - **Add User (Super Admin only):** a form covering the fields needed to create a new account (per Data Stored below), visible only to the Super Admin.
 
 ## Data Stored

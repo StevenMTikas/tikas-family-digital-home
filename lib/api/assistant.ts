@@ -13,12 +13,22 @@ export interface ConversationMessage {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  feedback: "thumbs_up" | "thumbs_down" | null;
+  source: "local" | "frontier";
 }
 
 export interface ConversationDetail {
   id: string;
   title: string | null;
+  /** Whether this user holds both permissions escalation requires — see AI_Permissions.md. */
+  canEscalate: boolean;
   messages: ConversationMessage[];
+}
+
+export interface EscalationPreview {
+  question: string;
+  localAnswer: string;
+  memoryFacts: string[];
 }
 
 export class AssistantApiError extends Error {}
@@ -67,4 +77,39 @@ export async function sendMessageStreaming(
     if (done) break;
     onChunk(decoder.decode(value, { stream: true }));
   }
+}
+
+export async function giveMessageFeedback(
+  conversationId: string,
+  messageId: string,
+  feedback: "thumbs_up" | "thumbs_down"
+): Promise<void> {
+  await unwrap(
+    await fetch(`/api/assistant/conversations/${conversationId}/messages/${messageId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ feedback }),
+    })
+  );
+}
+
+/** Shows exactly what would be sent, per AI_Permissions.md — call before confirmEscalation. */
+export async function previewEscalation(conversationId: string, messageId: string): Promise<EscalationPreview> {
+  return unwrap(
+    await fetch(`/api/assistant/conversations/${conversationId}/messages/${messageId}/escalate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: false }),
+    })
+  );
+}
+
+export async function confirmEscalation(conversationId: string, messageId: string): Promise<ConversationMessage> {
+  return unwrap(
+    await fetch(`/api/assistant/conversations/${conversationId}/messages/${messageId}/escalate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: true }),
+    })
+  );
 }

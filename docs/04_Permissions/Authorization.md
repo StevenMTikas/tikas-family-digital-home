@@ -26,6 +26,7 @@ Defines what a logged-in user is actually allowed to do — the role model, scop
 | **Super Admin** | Full, unconditional access to everything — every user, every setting, every technical admin tool. Exactly one per household (Dad, in this case). |
 | **Admin (scoped)** | Full control over their own account, plus full admin control over any user(s) they are scoped to — designed generally as **"any child on the same family account,"** not hardcoded to a specific child. Vee is scoped to Malachi today; the same mechanism would cover additional children if the family has more later. |
 | **Basic User** | Standard access to their own content and to whatever else their permissions/folder access allow. Default role for any newly added family member. |
+| **External Viewer** *(2026-08)* | Not a household member — a relative outside the home with real, individually revocable credentials and view-only access to a curated subset of content: Photos (via a Folder Permissions grant on the "Family Photos" folder) and the Family Board (via the `View Family Board` grantable permission below). No admin authority, no folder-edit/delete rights, never scoped as an Admin's child, no AI features at all. Created and managed from Administration's **External Viewers** tab (`app/api/admin/external-viewers`), not the regular Add User flow — see `Security_Architecture.md`'s section on the separate `/family-view` login surface this role authenticates through. |
 
 ### Admin Scope (Parent → Child)
 
@@ -43,9 +44,10 @@ These are separate from role and scope — off by default, and explicitly toggle
 | **Approve Outside Calls** | Off by default for everyone; off by default for a child's account as a standing rule (per `Security_Architecture.md`). |
 | **Manage Devices** | Add or revoke trusted devices. |
 | **Manage Parental Controls** | Only meaningful for an Admin, scoped to the child/children they cover. |
-| **View Child Activity Logs** | Only meaningful for an Admin, scoped to the child/children they cover. |
+| **View Child Activity Logs** | Only meaningful for an Admin, scoped to the child/children they cover. **First actually consumed 2026-08-01** (previously spec'd but unwired): gates an Admin's access to a scoped child's AI_Memory profile (`AI_Memory.md`, the Assistant's `get_user_profile` tool per `Assistant.md`) and whether that Admin receives Guardian's safety-signal notifications about that child (`Guardian.md`). |
 | **Delete Documents/Family Knowledge Items** | Distinct from create/edit — deleting is a heavier action, per the "every destructive action is reversible" rule, but the *permission to trigger* a delete is still worth gating separately. |
 | **Manage Folder Permissions** | Who can access a given folder — distinct from being able to add content to it. |
+| **View Family Board** *(2026-08)* | Only meaningful for an External Viewer — gates read access to the Family Board (`Family_Board.md`). A single boolean rather than a folder grant, since there's only one board, not a curatable set. Toggled from Administration's External Viewers tab, not the generic permission-revoke UI. |
 
 ### Inherently Super Admin-Only (Not Individually Grantable)
 

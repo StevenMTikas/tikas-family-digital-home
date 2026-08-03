@@ -24,7 +24,13 @@ CREATE TABLE users (
     hobbies_interests TEXT,               -- JSON array
     calendar_color TEXT,
     ai_enabled INTEGER NOT NULL DEFAULT 1,
-    role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'basic_user')),
+    -- 'external_viewer' (2026-08): a household-outside relative with real
+    -- credentials and view-only access to a curated subset of content
+    -- (Photos folder grants, the Family Board), reachable only via the
+    -- separate /family-view login surface — see Security_Architecture.md's
+    -- Tailscale Funnel path-scoping section and Decision_Log.md's entry on
+    -- this narrow, deliberate exception to "tailnet-only reachability."
+    role TEXT NOT NULL CHECK (role IN ('super_admin', 'admin', 'basic_user', 'external_viewer')),
     admin_scope TEXT,                     -- JSON array of user ids this admin is scoped to
     approve_outside_calls INTEGER NOT NULL DEFAULT 0,
     manage_devices INTEGER NOT NULL DEFAULT 0,
@@ -34,6 +40,10 @@ CREATE TABLE users (
     manage_folder_permissions INTEGER NOT NULL DEFAULT 0,
     -- Never 1 for a minor — enforce in application logic, not just this default.
     approve_sensitive_outside_transmission INTEGER NOT NULL DEFAULT 0,
+    -- Only meaningful for role='external_viewer' — gates read access to the
+    -- Family Board. A single boolean (not a folder grant) since there's only
+    -- one board, not a curatable set — see docs/02_Modules/Family_Board.md.
+    view_family_board INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -52,7 +62,34 @@ CREATE TABLE devices (
     auth_token TEXT,                      -- connector's credential; shown once at pairing time
     designated_folders TEXT,              -- JSON array of folder-type strings, e.g. ["camera_photos","documents"]
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
-    last_sync_at TEXT
+    last_sync_at TEXT,
+    -- Exactly one row has this set to 1: a device_type='computer' row
+    -- representing the host machine itself (the one Next.js/this app
+    -- already runs on). It's never paired by a real remote connector
+    -- process — auth_token stays unused — instead lib/core/connectors/
+    -- hostScan.ts scans its device_watched_paths in-process and calls
+    -- applySyncBatch() directly, no HTTP round-trip. See
+    -- File_Connector_Architecture.md's "Host Self-Scan" section.
+    is_host_device INTEGER NOT NULL DEFAULT 0 CHECK (is_host_device IN (0, 1))
+);
+
+-- ── Device Watched Path ──────────────────────────────────────────────
+-- The actual filesystem paths a connector (or the host's own self-scan)
+-- watches for a given folder type — set from the Admin dashboard, per
+-- File_Connector_Architecture.md's "Host- and Dashboard-Managed Folders"
+-- section. Distinct from devices.designated_folders, which only records
+-- which folder *types* are enabled, not paths. last_scan_status/at are
+-- fed back by the connector (in its sync payload) or the host self-scan
+-- (directly) after actually trying to read the path, since the host has
+-- no other way to know whether a remote path resolves.
+CREATE TABLE device_watched_paths (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    folder_type TEXT NOT NULL CHECK (folder_type IN ('camera_photos', 'documents')),
+    path TEXT NOT NULL,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    last_scan_status TEXT CHECK (last_scan_status IN ('ok', 'not_found')),
+    last_scan_at TEXT
 );
 
 -- ── Connector Exclusion ──────────────────────────────────────────────
@@ -80,7 +117,14 @@ CREATE TABLE folders (
     parent_folder_id TEXT REFERENCES folders(id),
     inherits_permissions INTEGER NOT NULL DEFAULT 1,
     permissions TEXT,                     -- JSON: per-user/role View/Edit/Delete grants
-    is_shared_family_folder INTEGER NOT NULL DEFAULT 0
+    is_shared_family_folder INTEGER NOT NULL DEFAULT 0,
+    -- The one folder every Photos upload is auto-filed into (2026-08), so an
+    -- external_viewer can be granted photo access through the existing
+    -- Folder Permissions system — see lib/folders/default-photos-folder.ts.
+    -- Deliberately a separate flag from is_shared_family_folder: that folder
+    -- scopes Documents/Family Knowledge, and reusing it here would mean a
+    -- Photos grant also exposed those unrelated, more sensitive contents.
+    is_default_photos_folder INTEGER NOT NULL DEFAULT 0
 );
 
 -- ── Event (Calendar) ─────────────────────────────────────────────────
@@ -94,7 +138,15 @@ CREATE TABLE events (
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
     category TEXT CHECK (category IN ('Budget', 'Home Repair', 'Chores', 'Medical', 'School', 'Social/Family')),
     reminder_lead_time TEXT,
-    reminder_sent_at TEXT               -- set once the scheduler fires this event's reminder, so it never fires twice
+    reminder_sent_at TEXT,              -- set once the scheduler fires this event's reminder, so it never fires twice
+    -- Recurrence: every occurrence of a series shares recurrence_id and
+    -- recurrence_frequency; each row is its own real, independently
+    -- editable/deletable Event. recurrence_until, if set on any row in the
+    -- group, caps how far scheduler-hourly.ts's generator extends the
+    -- series (set when a "this and future" delete truncates it).
+    recurrence_id TEXT,
+    recurrence_frequency TEXT CHECK (recurrence_frequency IN ('daily', 'weekly', 'biweekly', 'monthly', 'yearly')),
+    recurrence_until TEXT
 );
 
 CREATE TABLE event_assignments (
@@ -118,7 +170,12 @@ CREATE TABLE tasks (
     created_by TEXT NOT NULL REFERENCES users(id),
     assigned_by TEXT NOT NULL REFERENCES users(id),
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
-    reminder_sent_at TEXT               -- set once the scheduler fires this task's due-date reminder
+    reminder_sent_at TEXT,              -- set once the scheduler fires this task's due-date reminder
+    -- Recurrence — see the matching Event columns above for the model.
+    -- Each new occurrence starts fresh at status 'not_done'.
+    recurrence_id TEXT,
+    recurrence_frequency TEXT CHECK (recurrence_frequency IN ('daily', 'weekly', 'biweekly', 'monthly', 'yearly')),
+    recurrence_until TEXT
 );
 
 -- ── Document ─────────────────────────────────────────────────────────
@@ -147,6 +204,22 @@ CREATE TABLE documents (
     embedding TEXT                        -- JSON float array over title/category, per Search.md; see lib/core/search
 );
 
+-- ── Document Category ────────────────────────────────────────────────
+-- The canonical, manageable list of category names — separate from
+-- documents.category (which stays free-text, unchanged, so Advisor/search/
+-- existing category code needs no rework). Kept in sync on write: setting a
+-- document's category to a name not yet here inserts it automatically, so
+-- Advisor can still propose a brand-new category without an admin
+-- pre-creating it. A Super Admin can rename (cascades to every document
+-- using the old name) or delete (blocked while any document still uses it)
+-- from their profile — see docs/02_Modules/Documents.md.
+CREATE TABLE document_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- ── Photo ────────────────────────────────────────────────────────────
 -- See Photos.md. No dedup for MVP. See Document's comment above for the
 -- connector-sourced fields shared with Phase 5; `thumbnail` additionally
@@ -158,6 +231,12 @@ CREATE TABLE photos (
     file TEXT NOT NULL,
     uploaded_by TEXT NOT NULL REFERENCES users(id),
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Added 2026-08 solely to support external_viewer Folder Permissions
+    -- grants (see folders.is_default_photos_folder above) — every photo is
+    -- auto-filed into the one default Photos folder on upload. Internal
+    -- family visibility rules (visibility/is_sensitive + canManageUser) are
+    -- unchanged and don't consult this column at all.
+    folder_id TEXT REFERENCES folders(id),
     location TEXT,
     tags TEXT,                            -- JSON array
     visibility TEXT NOT NULL DEFAULT 'public' CHECK (visibility IN ('public', 'private')),
@@ -245,7 +324,28 @@ CREATE TABLE messages (
     conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
     content TEXT NOT NULL,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    -- The default below produces "2026-08-01 05:37:01" (space-separated) —
+    -- do NOT rely on it. Every real INSERT sets created_at explicitly via
+    -- new Date().toISOString() ("2026-08-01T05:36:46.767Z") instead, because
+    -- this column is sorted lexicographically: mixing the two formats
+    -- breaks ORDER BY created_at (' ' sorts before 'T' in ASCII, so a
+    -- default-timestamped row can sort before an explicitly-timestamped row
+    -- that actually came earlier). Found live 2026-08-01 as the real cause
+    -- of a user report that the Assistant "doesn't see previous chats" and
+    -- messages appeared to vanish — both were this ordering bug, not the
+    -- frontier-routing design it first looked like.
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    -- Per-message thumbs up/down on an assistant reply (2026-08-01) — distinct
+    -- from ai_suggestions.feedback, which is a separate system for Advisor
+    -- suggestion cards, not chat messages. A thumbs-down on a 'local' message
+    -- is what offers the escalate-to-frontier action (see AI_Suggestions.md's
+    -- sibling doc, Assistant.md's "Hybrid Local/Frontier Routing" section).
+    feedback TEXT CHECK (feedback IN ('thumbs_up', 'thumbs_down')),
+    -- Which model actually produced this assistant reply — 'local' (Ollama,
+    -- the default) or 'frontier' (either auto-routed because the question
+    -- needed no family data, or user-escalated after a thumbs-down). Only
+    -- meaningful for role='assistant'.
+    source TEXT NOT NULL DEFAULT 'local' CHECK (source IN ('local', 'frontier'))
 );
 
 -- ── Email Account (Standing Integration Connection) ─────────────────
@@ -266,7 +366,13 @@ CREATE TABLE email_accounts (
     imap_host TEXT,
     imap_port INTEGER,
     imap_username TEXT,
-    encrypted_password TEXT
+    encrypted_password TEXT,
+    -- Gmail-only OAuth path (2026-08-02), alongside the IMAP path above —
+    -- not a replacement. 'oauth_google' rows leave every imap_*/
+    -- encrypted_password column NULL and use encrypted_refresh_token
+    -- instead; see Email.md and lib/core/email/index.ts.
+    auth_method TEXT NOT NULL DEFAULT 'imap' CHECK (auth_method IN ('imap', 'oauth_google')),
+    encrypted_refresh_token TEXT
 );
 
 -- ── AI Memory ────────────────────────────────────────────────────────
@@ -305,7 +411,46 @@ CREATE TABLE ai_suggestions (
     expired_reason TEXT,
     accepted_at TEXT,
     feedback TEXT DEFAULT 'none' CHECK (feedback IN ('thumbs_up', 'thumbs_down', 'dismissed', 'none')),
-    feedback_at TEXT
+    feedback_at TEXT,
+    -- A single structured value alongside the free-text `content` sentence —
+    -- e.g. the one specific category name Advisor is actually suggesting for
+    -- a document, so "Accept" has something unambiguous to pre-fill. `content`
+    -- itself can't be parsed reliably for this (the LLM sometimes phrases a
+    -- sentence offering multiple options). NULL for suggestion types with
+    -- nothing structured to suggest (see AI_Suggestions.md).
+    suggested_value TEXT
+);
+
+-- ── Family Message ───────────────────────────────────────────────────
+-- See Dashboard.md's "Family Message Board" section. A plain human-to-family
+-- channel on the family-wide Dashboard view, distinct from Calendar/Tasks/
+-- Notifications/Advisor suggestions. Unlike Notifications, no cap/expiry —
+-- stays until someone deletes it (Steven, 2026-07-31). Posting is Admin/
+-- Super Admin only; editing is the poster only (nobody else, not even the
+-- Super Admin — that's an intentional asymmetry with delete); deleting is
+-- the poster or the Super Admin as a moderation backstop.
+CREATE TABLE family_messages (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    posted_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Family Board ─────────────────────────────────────────────────────
+-- See docs/02_Modules/Family_Board.md. Deliberately the same minimal shape
+-- and permission rules as family_messages above (posting is Admin/Super
+-- Admin only, editing is poster-only, deleting is poster-or-Super-Admin) —
+-- a standalone module (its own page/nav entry, not embedded in Dashboard)
+-- specifically so it has a 1:1 read-only counterpart at
+-- app/family-view/board for external_viewer accounts with
+-- users.view_family_board = 1.
+CREATE TABLE family_board_posts (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    posted_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ── Notification ─────────────────────────────────────────────────────
@@ -384,3 +529,5 @@ CREATE INDEX idx_security_events_created_at ON security_events(created_at);
 CREATE INDEX idx_documents_source_device_id ON documents(source_device_id);
 CREATE INDEX idx_photos_source_device_id ON photos(source_device_id);
 CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id);
+CREATE INDEX idx_photos_folder_id ON photos(folder_id);
+CREATE INDEX idx_family_board_posts_posted_by ON family_board_posts(posted_by);

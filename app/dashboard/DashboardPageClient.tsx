@@ -9,9 +9,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatEventTime } from "@/lib/calendar/dates";
-import { getFamilyBriefing, DashboardApiError, type FamilyBriefing } from "@/lib/api/dashboard";
+import {
+  getFamilyBriefing,
+  getFamilyMessages,
+  postFamilyMessage,
+  editFamilyMessage,
+  deleteFamilyMessage,
+  DashboardApiError,
+  type FamilyBriefing,
+  type FamilyMessage,
+} from "@/lib/api/dashboard";
 import { acceptSuggestion, giveSuggestionFeedback, AiSettingsApiError } from "@/lib/api/ai-settings";
 import type { WeatherSnapshot } from "@/lib/weather";
+import type { Role } from "@/lib/core/permissions/types";
 
 export interface TodayEvent {
   id: string;
@@ -30,6 +40,8 @@ export interface SuggestionData {
   module: string | null;
   content: string;
   relatedEntityId: string | null;
+  suggestedValue: string | null;
+  relatedEntityTitle: string | null;
 }
 
 export interface UrgentFinding {
@@ -45,6 +57,8 @@ interface Props {
   suggestions: SuggestionData[];
   urgentFindings: UrgentFinding[];
   weather: WeatherSnapshot | null;
+  currentUserId: string;
+  currentUserRole: Role;
 }
 
 const QUICK_ACTIONS: { label: string; icon: string; action: (router: ReturnType<typeof useRouter>) => void }[] = [
@@ -55,7 +69,16 @@ const QUICK_ACTIONS: { label: string; icon: string; action: (router: ReturnType<
   { label: "Search", icon: "🔍", action: (router) => router.push("/search") },
 ];
 
-export default function DashboardPageClient({ fullName, todaysEvents, todaysTasks, suggestions, urgentFindings, weather }: Props) {
+export default function DashboardPageClient({
+  fullName,
+  todaysEvents,
+  todaysTasks,
+  suggestions,
+  urgentFindings,
+  weather,
+  currentUserId,
+  currentUserRole,
+}: Props) {
   const router = useRouter();
   const [scope, setScope] = useState<"mine" | "family">("mine");
   const [family, setFamily] = useState<FamilyBriefing | null>(null);
@@ -63,6 +86,20 @@ export default function DashboardPageClient({ fullName, todaysEvents, todaysTask
   const [familyError, setFamilyError] = useState<string | null>(null);
   const [suggestionList, setSuggestionList] = useState(suggestions);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
+
+  // Family Message Board (Dashboard.md) — fetched alongside the family
+  // briefing, only ever shown in the "family" scope.
+  const [messages, setMessages] = useState<FamilyMessage[] | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [newMessageText, setNewMessageText] = useState("");
+  const [postingMessage, setPostingMessage] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editMessageText, setEditMessageText] = useState("");
+  const [busyMessageId, setBusyMessageId] = useState<string | null>(null);
+  // Allow-list, not a `!== "basic_user"` deny-list — mirrors the server-side
+  // check in app/api/dashboard/messages/route.ts, which a deny-list shape
+  // would silently misfire for a role like external_viewer.
+  const canPostMessages = currentUserRole === "admin" || currentUserRole === "super_admin";
 
   function handleScopeChange(next: "mine" | "family") {
     setScope(next);
@@ -74,13 +111,79 @@ export default function DashboardPageClient({ fullName, todaysEvents, todaysTask
         .catch((err) => setFamilyError(err instanceof DashboardApiError ? err.message : "Couldn't load the family view."))
         .finally(() => setFamilyLoading(false));
     }
+    if (next === "family" && !messages) {
+      getFamilyMessages()
+        .then(setMessages)
+        .catch((err) => setMessagesError(err instanceof DashboardApiError ? err.message : "Couldn't load the message board."));
+    }
+  }
+
+  async function handlePostMessage() {
+    if (!newMessageText.trim()) return;
+    setPostingMessage(true);
+    setMessagesError(null);
+    try {
+      const posted = await postFamilyMessage(newMessageText.trim());
+      setMessages((prev) => [posted, ...(prev ?? [])]);
+      setNewMessageText("");
+    } catch (err) {
+      setMessagesError(err instanceof DashboardApiError ? err.message : "Something went wrong.");
+    } finally {
+      setPostingMessage(false);
+    }
+  }
+
+  async function handleSaveEditedMessage(id: string) {
+    if (!editMessageText.trim()) return;
+    setBusyMessageId(id);
+    setMessagesError(null);
+    try {
+      const updated = await editFamilyMessage(id, editMessageText.trim());
+      setMessages((prev) => (prev ?? []).map((m) => (m.id === id ? updated : m)));
+      setEditingMessageId(null);
+    } catch (err) {
+      setMessagesError(err instanceof DashboardApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyMessageId(null);
+    }
+  }
+
+  async function handleDeleteMessage(id: string) {
+    if (!confirm("Delete this message?")) return;
+    setBusyMessageId(id);
+    setMessagesError(null);
+    try {
+      await deleteFamilyMessage(id);
+      setMessages((prev) => (prev ?? []).filter((m) => m.id !== id));
+    } catch (err) {
+      setMessagesError(err instanceof DashboardApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyMessageId(null);
+    }
   }
 
   async function handleSuggestionAction(id: string, action: "accept" | "thumbs_up" | "thumbs_down" | "dismissed") {
     setSuggestionError(null);
     try {
-      if (action === "accept") await acceptSuggestion(id);
-      else await giveSuggestionFeedback(id, action);
+      if (action === "accept") {
+        // The response's suggestedValue may be freshly backfilled by the
+        // API (for a suggestion generated before Advisor started capturing
+        // one) — use that rather than the possibly-stale value already in
+        // local state. Per AI_Suggestions.md: Accept navigates to the
+        // relevant screen with the suggestion pre-filled — the user still
+        // reviews and saves, rather than the AI silently applying it. Only
+        // documents have a structured suggested value today; other
+        // suggestion types just clear from the list like before.
+        const accepted = await acceptSuggestion(id);
+        if (accepted.module === "documents" && accepted.relatedEntityId) {
+          const params = new URLSearchParams({ tab: "documents", edit: accepted.relatedEntityId });
+          if (accepted.suggestedValue) params.set("suggestedCategory", accepted.suggestedValue);
+          router.push(`/content?${params.toString()}`);
+          return;
+        }
+      } else {
+        await giveSuggestionFeedback(id, action);
+      }
       setSuggestionList((prev) => prev.filter((s) => s.id !== id));
     } catch (err) {
       setSuggestionError(err instanceof AiSettingsApiError ? err.message : "Something went wrong.");
@@ -179,9 +282,103 @@ export default function DashboardPageClient({ fullName, todaysEvents, todaysTask
             <>
               {familyLoading && <p className="text-sm text-ink-muted">Loading…</p>}
               {familyError && <p className="text-sm text-urgent">{familyError}</p>}
+              <Section title="Family Message Board" first>
+                {messagesError && <p className="text-xs text-urgent mb-2">{messagesError}</p>}
+                {canPostMessages && (
+                  <div className="flex items-start gap-2 mb-3">
+                    <textarea
+                      value={newMessageText}
+                      onChange={(e) => setNewMessageText(e.target.value)}
+                      placeholder="Post something for the whole family to see…"
+                      rows={2}
+                      className="flex-1 px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink placeholder:text-ink-muted/70 focus:outline-none focus:ring-2 focus:ring-accent/40 resize-y min-h-[42px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handlePostMessage}
+                      disabled={postingMessage || !newMessageText.trim()}
+                      className="text-[13px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-60"
+                    >
+                      Post
+                    </button>
+                  </div>
+                )}
+                {messages === null ? (
+                  <p className="text-xs text-ink-muted">Loading…</p>
+                ) : messages.length === 0 ? (
+                  <Empty text="No messages yet." />
+                ) : (
+                  messages.map((m, i) => {
+                    const canEdit = m.postedBy === currentUserId;
+                    const canDelete = canEdit || currentUserRole === "super_admin";
+                    return (
+                      <div key={m.id} className={`py-2.5 ${i > 0 ? "border-t border-ink/[0.07]" : ""}`}>
+                        {editingMessageId === m.id ? (
+                          <div className="flex items-start gap-2">
+                            <textarea
+                              value={editMessageText}
+                              onChange={(e) => setEditMessageText(e.target.value)}
+                              rows={2}
+                              autoFocus
+                              className="flex-1 px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40 resize-y min-h-[42px]"
+                            />
+                            <div className="flex flex-col gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditedMessage(m.id)}
+                                disabled={busyMessageId === m.id}
+                                className="text-[11px] font-semibold text-accent-strong disabled:opacity-60"
+                              >
+                                Save
+                              </button>
+                              <button type="button" onClick={() => setEditingMessageId(null)} className="text-[11px] text-ink-muted">
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-[13px] text-ink whitespace-pre-wrap">{m.text}</div>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-[11px] text-ink-muted">
+                                {m.postedByName} · {formatMessageDate(m.createdAt)}
+                                {m.updatedAt !== m.createdAt ? " (edited)" : ""}
+                              </span>
+                              {canEdit && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingMessageId(m.id);
+                                    setEditMessageText(m.text);
+                                    setMessagesError(null);
+                                  }}
+                                  className="text-[11px] text-ink-muted underline"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMessage(m.id)}
+                                  disabled={busyMessageId === m.id}
+                                  className="text-[11px] text-urgent disabled:opacity-60"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </Section>
+
               {family && (
                 <>
-                  <Section title="Today's Events" first>
+                  <Section title="Today's Events">
                     {family.events.length === 0 ? (
                       <Empty text="Nothing on the family calendar today." />
                     ) : (
@@ -224,6 +421,9 @@ export default function DashboardPageClient({ fullName, todaysEvents, todaysTask
               ) : (
                 suggestionList.map((s) => (
                   <div key={s.id} className="py-2.5 border-t border-ink/[0.07] first:border-t-0">
+                    {s.relatedEntityTitle && (
+                      <div className="text-[11px] font-semibold text-ink-muted mb-0.5">{s.relatedEntityTitle}</div>
+                    )}
                     <div className="text-[13px] text-ink">{s.content}</div>
                     <div className="flex items-center gap-3 mt-1.5">
                       <button
@@ -301,4 +501,11 @@ function Row({ children, onClick }: { children: React.ReactNode; onClick: () => 
 
 function Empty({ text }: { text: string }) {
   return <p className="text-xs text-ink-muted">{text}</p>;
+}
+
+// created_at/updated_at come back as SQLite's "YYYY-MM-DD HH:MM:SS" (space,
+// not "T"), unlike Event.dateTime — formatEventTime's "T"-split wouldn't work here.
+function formatMessageDate(sqliteDateTime: string): string {
+  const d = new Date(sqliteDateTime.replace(" ", "T"));
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }

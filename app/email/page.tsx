@@ -9,6 +9,7 @@
 // page.tsx/PageClient.tsx split.
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   getEmailAccount,
   connectEmail,
@@ -18,6 +19,16 @@ import {
   type EmailAccount,
   type EmailSummary,
 } from "@/lib/api/email";
+
+// Gmail OAuth callback redirects back here with ?connected=1 or ?error=<code>
+// — read once on mount, same pattern ContentPageClient.tsx already uses for
+// its own query-param-driven state.
+const OAUTH_ERROR_MESSAGES: Record<string, string> = {
+  not_configured: "Gmail sign-in isn't set up yet — ask your Super Admin to finish the one-time Google Cloud setup.",
+  oauth_denied: "Google sign-in was cancelled.",
+  oauth_state: "That sign-in link expired — try connecting again.",
+  oauth_failed: "Couldn't finish connecting your Google account. Try again.",
+};
 
 const PROVIDER_PRESETS: Record<string, { imapHost: string; imapPort: number }> = {
   gmail: { imapHost: "imap.gmail.com", imapPort: 993 },
@@ -32,6 +43,14 @@ export default function EmailPage() {
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
 
+  const searchParams = useSearchParams();
+  const [banner] = useState<{ text: string; kind: "success" | "error" } | null>(() => {
+    if (searchParams.get("connected") === "1") return { text: "Your Google account is connected.", kind: "success" };
+    const errorCode = searchParams.get("error");
+    if (errorCode) return { text: OAUTH_ERROR_MESSAGES[errorCode] ?? "Something went wrong connecting your account.", kind: "error" };
+    return null;
+  });
+
   const [provider, setProvider] = useState("gmail");
   const [emailAddress, setEmailAddress] = useState("");
   const [imapHost, setImapHost] = useState(PROVIDER_PRESETS.gmail!.imapHost);
@@ -40,6 +59,7 @@ export default function EmailPage() {
   const [password, setPassword] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [showManualForm, setShowManualForm] = useState(false);
 
   useEffect(() => {
     getEmailAccount().then(setAccount).catch(() => setAccount(null));
@@ -113,12 +133,18 @@ export default function EmailPage() {
         A quick glance at your unread and important messages — not a full inbox.
       </p>
 
+      {banner && (
+        <p className={`text-xs mt-3 ${banner.kind === "error" ? "text-urgent" : "text-ink-muted"}`}>{banner.text}</p>
+      )}
+
       {account?.status === "connected" ? (
         <>
           <div className="bg-surface rounded-2xl p-5 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mt-5 flex items-center justify-between">
             <div>
               <div className="text-[13.5px] text-ink font-medium">{account.emailAddress}</div>
-              <div className="text-xs text-ink-muted mt-0.5 capitalize">{account.provider}</div>
+              <div className="text-xs text-ink-muted mt-0.5 capitalize">
+                {account.provider} · {account.authMethod === "oauth_google" ? "Connected via Google Sign-In" : "Connected via IMAP"}
+              </div>
             </div>
             <button type="button" onClick={handleRevoke} className="text-xs text-urgent font-medium">
               Disconnect
@@ -187,77 +213,99 @@ export default function EmailPage() {
             </select>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-ink mb-1.5">Email address</label>
-            <input
-              type="email"
-              required
-              value={emailAddress}
-              onChange={(e) => setEmailAddress(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-            />
-          </div>
-
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-ink mb-1.5">IMAP host</label>
-              <input
-                type="text"
-                required
-                value={imapHost}
-                onChange={(e) => setImapHost(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-              />
-            </div>
-            <div className="w-[100px]">
-              <label className="block text-xs font-semibold text-ink mb-1.5">Port</label>
-              <input
-                type="number"
-                required
-                value={imapPort}
-                onChange={(e) => setImapPort(Number(e.target.value))}
-                className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-ink mb-1.5">Username (defaults to your email address)</label>
-            <input
-              type="text"
-              value={imapUsername}
-              onChange={(e) => setImapUsername(e.target.value)}
-              placeholder={emailAddress}
-              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-ink mb-1.5">
-              Password (use an app password if your provider requires one)
-            </label>
-            <input
-              type="password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
-            />
-          </div>
-
-          {connectError && (
-            <p role="alert" className="text-xs text-urgent">
-              {connectError}
-            </p>
+          {provider === "gmail" && (
+            <>
+              <a
+                href="/api/email/oauth/google/start"
+                className="px-5 py-2.5 rounded-full bg-ink text-white text-[13.5px] font-medium text-center"
+              >
+                Sign in with Google
+              </a>
+              <button
+                type="button"
+                onClick={() => setShowManualForm((v) => !v)}
+                className="text-xs text-ink-muted underline self-start"
+              >
+                {showManualForm ? "Hide manual setup" : "Or connect manually with an app password"}
+              </button>
+            </>
           )}
 
-          <button
-            type="submit"
-            disabled={connecting}
-            className="px-5 py-2.5 rounded-full bg-accent-strong text-white text-[13.5px] font-medium disabled:opacity-60 self-start"
-          >
-            {connecting ? "Connecting…" : "Connect"}
-          </button>
+          {(provider !== "gmail" || showManualForm) && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1.5">Email address</label>
+                <input
+                  type="email"
+                  required
+                  value={emailAddress}
+                  onChange={(e) => setEmailAddress(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="block text-xs font-semibold text-ink mb-1.5">IMAP host</label>
+                  <input
+                    type="text"
+                    required
+                    value={imapHost}
+                    onChange={(e) => setImapHost(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  />
+                </div>
+                <div className="w-[100px]">
+                  <label className="block text-xs font-semibold text-ink mb-1.5">Port</label>
+                  <input
+                    type="number"
+                    required
+                    value={imapPort}
+                    onChange={(e) => setImapPort(Number(e.target.value))}
+                    className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1.5">Username (defaults to your email address)</label>
+                <input
+                  type="text"
+                  value={imapUsername}
+                  onChange={(e) => setImapUsername(e.target.value)}
+                  placeholder={emailAddress}
+                  className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-ink mb-1.5">
+                  Password (use an app password if your provider requires one)
+                </label>
+                <input
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              </div>
+
+              {connectError && (
+                <p role="alert" className="text-xs text-urgent">
+                  {connectError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={connecting}
+                className="px-5 py-2.5 rounded-full bg-accent-strong text-white text-[13.5px] font-medium disabled:opacity-60 self-start"
+              >
+                {connecting ? "Connecting…" : "Connect"}
+              </button>
+            </>
+          )}
         </form>
       )}
     </main>

@@ -20,8 +20,12 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
     try {
-      await login(username, password);
-      router.push("/dashboard");
+      const user = await login(username, password);
+      // The server already refuses an external_viewer row on this route
+      // (app/api/auth/login/route.ts), so this branch is defensive
+      // consistency rather than a real path — cheap to keep correct in case
+      // that ever changes.
+      router.push(user.role === "external_viewer" ? "/family-view/photos" : "/dashboard");
       // router.push alone leaves the root layout's server-rendered output
       // (NavShell, AssistantBubble, NotificationsCenter — all gated on the
       // authenticated user id read via headers()) stuck on its pre-login

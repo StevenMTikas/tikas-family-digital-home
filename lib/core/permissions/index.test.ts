@@ -14,6 +14,7 @@ function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
       deleteContent: false,
       manageFolderPermissions: false,
       approveSensitiveOutsideTransmission: false,
+      viewFamilyBoard: false,
     },
     ...overrides,
   };
@@ -90,6 +91,7 @@ describe("hasPermission", () => {
         deleteContent: false,
         manageFolderPermissions: false,
         approveSensitiveOutsideTransmission: false,
+        viewFamilyBoard: false,
       },
     });
     expect(hasPermission(vee, "manageDevices")).toBe(true);
@@ -99,5 +101,37 @@ describe("hasPermission", () => {
   it("a Basic User with no granted permissions has none", () => {
     const malachi = makeUser({ role: "basic_user" });
     expect(hasPermission(malachi, "manageDevices")).toBe(false);
+  });
+
+  it("an external_viewer has no permissions by default, but does once viewFamilyBoard is granted", () => {
+    const grandma = makeUser({ id: "grandma", role: "external_viewer" });
+    expect(hasPermission(grandma, "viewFamilyBoard")).toBe(false);
+
+    const grandmaWithBoardAccess = makeUser({
+      id: "grandma",
+      role: "external_viewer",
+      permissions: { ...grandma.permissions, viewFamilyBoard: true },
+    });
+    expect(hasPermission(grandmaWithBoardAccess, "viewFamilyBoard")).toBe(true);
+  });
+});
+
+describe("external_viewer role — admin-authority semantics", () => {
+  it("has no admin authority over anyone, even themself", () => {
+    const grandma = makeUser({ id: "grandma", role: "external_viewer" });
+    expect(hasAdminAuthorityOver(grandma, "grandma")).toBe(false);
+    expect(hasAdminAuthorityOver(grandma, "malachi")).toBe(false);
+  });
+
+  it("can only canManageUser their own account (the self-clause), never another's", () => {
+    const grandma = makeUser({ id: "grandma", role: "external_viewer" });
+    expect(canManageUser(grandma, "grandma")).toBe(true);
+    expect(canManageUser(grandma, "malachi")).toBe(false);
+  });
+
+  it("Super Admin retains authority over an external_viewer's account, for lifecycle management", () => {
+    const superAdmin = makeUser({ id: "dad", role: "super_admin" });
+    expect(hasAdminAuthorityOver(superAdmin, "grandma")).toBe(true);
+    expect(canManageUser(superAdmin, "grandma")).toBe(true);
   });
 });

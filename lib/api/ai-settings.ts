@@ -37,8 +37,9 @@ export interface AiMemoryEntry {
   flagged: boolean;
 }
 
-export async function getMyAiMemory(): Promise<AiMemoryEntry[]> {
-  return unwrap(await fetch("/api/ai-memory"));
+/** Omit userId (or pass your own id) for your own memory; a Super Admin or a permitted Admin can pass another user's id. */
+export async function getAiMemoryFor(userId?: string): Promise<AiMemoryEntry[]> {
+  return unwrap(await fetch(userId ? `/api/ai-memory?userId=${encodeURIComponent(userId)}` : "/api/ai-memory"));
 }
 
 export async function flagAiMemoryEntry(id: string, flagged: boolean): Promise<void> {
@@ -47,6 +48,17 @@ export async function flagAiMemoryEntry(id: string, flagged: boolean): Promise<v
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ flagged }),
+    })
+  );
+}
+
+/** Super Admin only, per AI_Memory.md — editing any user's entry, including their own. */
+export async function editAiMemoryEntry(id: string, fact: string): Promise<void> {
+  await unwrap(
+    await fetch(`/api/ai-memory/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fact }),
     })
   );
 }
@@ -61,6 +73,7 @@ export interface AiSuggestionEntry {
   acceptedAt: string | null;
   feedback: "thumbs_up" | "thumbs_down" | "dismissed" | "none";
   relatedEntityId: string | null;
+  relatedEntityTitle: string | null;
 }
 
 export async function getMySuggestions(status: "active" | "all" = "active"): Promise<AiSuggestionEntry[]> {
@@ -81,8 +94,17 @@ export async function giveSuggestionFeedback(
 }
 
 /** AI_Suggestions.md's Accept action — records that the user was routed to act; it never finalizes the action itself. */
-export async function acceptSuggestion(id: string): Promise<void> {
-  await unwrap(
+export interface AcceptedSuggestion {
+  id: string;
+  module: string | null;
+  relatedEntityId: string | null;
+  feedback: string;
+  acceptedAt: string | null;
+  suggestedValue: string | null;
+}
+
+export async function acceptSuggestion(id: string): Promise<AcceptedSuggestion> {
+  return unwrap(
     await fetch(`/api/ai-suggestions/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },

@@ -31,6 +31,8 @@ interface SuggestionRow {
   module: string | null;
   content: string;
   related_entity_id: string | null;
+  suggested_value: string | null;
+  related_entity_title: string | null;
 }
 
 export default async function DashboardPage() {
@@ -61,11 +63,20 @@ export default async function DashboardPage() {
   const todaysTasks: TodayTask[] = taskRows.map((row) => ({ id: row.id, title: row.title, status: row.status }));
 
   // Active suggestions — same query as GET /api/ai-suggestions?status=active (Advisor.md's display rules).
+  // module determines which table related_entity_id points into — there's
+  // no single FK, so the name has to be resolved per-module rather than joined.
   const suggestionRows = db
     .prepare(
-      `SELECT id, module, content, related_entity_id FROM ai_suggestions
-       WHERE user_id = ? AND expired = 0 AND feedback = 'none' AND display_context = 'dashboard'
-       ORDER BY relevancy_score DESC, generated_at DESC LIMIT 10`
+      `SELECT s.id, s.module, s.content, s.related_entity_id, s.suggested_value,
+         CASE s.module
+           WHEN 'documents' THEN (SELECT title FROM documents WHERE id = s.related_entity_id)
+           WHEN 'calendar' THEN (SELECT title FROM events WHERE id = s.related_entity_id)
+           WHEN 'tasks' THEN (SELECT title FROM tasks WHERE id = s.related_entity_id)
+           ELSE NULL
+         END AS related_entity_title
+       FROM ai_suggestions s
+       WHERE s.user_id = ? AND s.expired = 0 AND s.feedback = 'none' AND s.display_context = 'dashboard'
+       ORDER BY s.relevancy_score DESC, s.generated_at DESC LIMIT 10`
     )
     .all(actor.id) as SuggestionRow[];
   const suggestions: SuggestionData[] = suggestionRows.map((row) => ({
@@ -73,6 +84,8 @@ export default async function DashboardPage() {
     module: row.module,
     content: row.content,
     relatedEntityId: row.related_entity_id,
+    suggestedValue: row.suggested_value,
+    relatedEntityTitle: row.related_entity_title,
   }));
 
   // Guardian's urgent findings — Morning_Briefing.md: "urgent items in
@@ -94,6 +107,8 @@ export default async function DashboardPage() {
       suggestions={suggestions}
       urgentFindings={urgentRows.map((r) => ({ id: r.id, text: r.text, createdAt: r.created_at }))}
       weather={weather}
+      currentUserId={actor.id}
+      currentUserRole={actor.role}
     />
   );
 }

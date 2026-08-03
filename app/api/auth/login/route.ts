@@ -33,7 +33,13 @@ export async function POST(req: NextRequest) {
     .prepare("SELECT id, username, password_hash, full_name, role FROM users WHERE username = ?")
     .get(username) as UserRow | undefined;
 
-  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+  // external_viewer accounts only ever authenticate through the separate
+  // /family-view login surface (app/api/family-view/auth/login) — refused
+  // here the same generic way as a wrong password, so there's no
+  // "valid password, wrong surface" side-channel. Keeps the two account
+  // universes symmetric even if an external_viewer's credentials leaked.
+  const passwordOk = user ? await bcrypt.compare(password, user.password_hash) : false;
+  if (!user || !passwordOk || user.role === "external_viewer") {
     await logSecurityEvent({
       type: "login_failed",
       userId: user?.id ?? "",

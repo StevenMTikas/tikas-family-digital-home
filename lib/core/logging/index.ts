@@ -11,6 +11,10 @@ export type LogEventType =
   | "login"
   | "logout"
   | "login_failed"
+  // A run of login_failed events against the same username tripped the
+  // throttle (lib/core/auth/throttle.ts) — external_viewer's /family-view
+  // login only, per Security_Architecture.md's Funnel-exposure section.
+  | "login_locked"
   | "password_reset"
   | "device_added"
   | "device_revoked"
