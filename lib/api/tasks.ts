@@ -24,8 +24,21 @@ export interface Task {
   visibility: "public" | "private";
   recurrenceId: string | null;
   recurrenceFrequency: RecurrenceFrequency | null;
+  // Homeschool.md: presence of subjectId is what marks this Task as homework
+  // — a plain chore/errand Task has all of these null.
+  subjectId: string | null;
+  subjectName: string | null;
+  curriculumReference: string | null;
+  gradeOrScore: string | null;
+  parentNotes: string | null;
+  signedOffBy: string | null;
+  signedOffAt: string | null;
   canEdit: boolean;
   canComplete: boolean;
+  // Homeschool.md: Admin/Super-Admin authority over the owner, regardless of
+  // who assigned the task — narrower than canEdit, gates gradeOrScore/
+  // parentNotes/signedOff specifically.
+  canGrade: boolean;
 }
 
 export class TasksApiError extends Error {}
@@ -52,6 +65,16 @@ export interface TaskInput {
   // Only meaningful when creating a new task — recurrence can't be changed
   // after creation (delete the series and start a new one instead).
   recurrence?: RecurrenceFrequency | null;
+  // Homeschool.md fields — subject/curriculumReference are settable by
+  // anyone who can edit the task; gradeOrScore/parentNotes/signedOff are
+  // server-enforced Admin/Super-Admin-only (see Task.canGrade). Setting
+  // subject to "" (or omitting it on an edit that clears it) removes the
+  // homework link entirely.
+  subject?: string | null;
+  curriculumReference?: string | null;
+  gradeOrScore?: string | null;
+  parentNotes?: string | null;
+  signedOff?: boolean;
 }
 
 export async function createTask(input: TaskInput): Promise<Task> {

@@ -70,6 +70,9 @@ Sequences the build order for Tikas Family Digital Home's MVP into logical phase
 ### Phase 8 — Household Dogfooding
 - Real, daily use by Dad, Vee, and Malachi — the actual MVP validation. Issues found here feed back into `Future_Ideas.md` and, where they affect scope, back into the relevant module doc.
 
+### Phase 9 — Homeschool Module
+- **Homeschool** (`Homeschool.md`, scoped 2026-08-03): Subject and Homework_Detail entities, extending Tasks rather than a parallel system. Surfaced during Phase 8 dogfooding as a real, immediate household need (Malachi's homeschooling) rather than waiting for a future planning pass — slotted here as its own phase since it depends on Tasks (Phase 2) and Authorization (Phase 1) but nothing else not already built.
+
 ## Screen Layout
 
 - Not applicable — this is a project-planning document.

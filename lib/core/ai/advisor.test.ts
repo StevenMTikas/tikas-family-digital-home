@@ -2,9 +2,17 @@ process.env.DATABASE_PATH = ":memory:";
 
 import fs from "fs";
 import path from "path";
-import { beforeAll, describe, it, expect } from "vitest";
+import { beforeAll, describe, it, expect, vi } from "vitest";
 import { getDb } from "@/db/client";
-import { detectFindings, expireStaleSuggestions } from "./advisor";
+import {
+  detectFindings,
+  expireStaleSuggestions,
+  dampRelevancyScore,
+  buildAdvisorSystemPrompt,
+  runAdvisorDetectors,
+  type Finding,
+} from "./advisor";
+import { createMemoryFact, getTopMemories } from "./memory";
 
 const NOW = new Date("2026-07-25T12:00:00");
 function inDays(days: number, timeOnly = false): string {
@@ -144,5 +152,125 @@ describe("expireStaleSuggestions", () => {
     };
     expect(row.expired).toBe(1);
     expect(row.expired_reason).toBe("task was deleted");
+  });
+});
+
+// AI_Suggestions.md: feedback (thumbs-up/down/dismiss) "informs tone and
+// preference over time via AI_Memory," with "no fixed '3 thumbs-down = never
+// show this category again' logic" — dampRelevancyScore is the deterministic,
+// testable piece that implements the gradual, non-hard-cutoff half of that.
+describe("dampRelevancyScore", () => {
+  it("returns the base score unchanged with no prior negative feedback", () => {
+    expect(dampRelevancyScore(0.6, 0)).toBeCloseTo(0.6, 5);
+  });
+
+  it("shrinks gradually as negative feedback accumulates", () => {
+    const one = dampRelevancyScore(0.6, 1);
+    const three = dampRelevancyScore(0.6, 3);
+    expect(one).toBeLessThan(0.6);
+    expect(three).toBeLessThan(one);
+    expect(three).toBeGreaterThan(0);
+  });
+
+  it("never fully suppresses a module — floors above zero even with heavy negative feedback", () => {
+    expect(dampRelevancyScore(0.6, 100)).toBeCloseTo(0.1, 5);
+  });
+});
+
+describe("buildAdvisorSystemPrompt", () => {
+  const calendarFinding: Finding = {
+    userId: "dad",
+    module: "calendar",
+    relatedEntityId: "evt-no-reminder",
+    rawFinding: 'The event "Dentist" on 2026-07-27T12:00:00 has no reminder set.',
+    relevancyScore: 0.6,
+  };
+
+  it("includes the person's stored preference facts so tone/frequency can adapt", () => {
+    const memories = [
+      {
+        id: "m1",
+        fact: 'Found this calendar suggestion unhelpful: "Add a reminder?"',
+        category: "preferences" as const,
+        source: "suggestion_feedback" as const,
+        confidence: 0.7,
+        lastReinforcedAt: null,
+        isSensitive: false,
+        flagged: false,
+      },
+    ];
+    const prompt = buildAdvisorSystemPrompt(calendarFinding, memories);
+    expect(prompt).toContain('Found this calendar suggestion unhelpful: "Add a reminder?"');
+  });
+
+  it("still includes the category instruction for a documents finding", () => {
+    const finding: Finding = {
+      userId: "dad",
+      module: "documents",
+      relatedEntityId: "doc-uncategorized",
+      rawFinding: "x",
+      relevancyScore: 0.4,
+    };
+    expect(buildAdvisorSystemPrompt(finding, [])).toContain("CATEGORY:");
+  });
+});
+
+describe("runAdvisorDetectors — feedback loop", () => {
+  it("dampens relevancy_score from prior negative feedback on the same module, and surfaces preference facts to the LLM", async () => {
+    const db = getDb();
+
+    // runAdvisorDetectors calls detectFindings() with no explicit `now`, so
+    // it uses the real current time — unlike the rest of this file's
+    // fixtures, this one can't be dated relative to the NOW constant above.
+    const realSoon = new Date();
+    realSoon.setDate(realSoon.getDate() + 2);
+    db.prepare(
+      `INSERT INTO events (id, title, date_time, created_by, reminder_lead_time) VALUES (?, ?, ?, ?, NULL)`
+    ).run("evt-feedback-loop", "Checkup", realSoon.toISOString().slice(0, 19), "dad");
+
+    // Two prior negative feedback events on calendar suggestions for dad.
+    db.prepare(
+      `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, content, feedback, expired) VALUES (?, 'dad', 'calendar', 'event', 'x', 'thumbs_down', 1)`
+    ).run("prior-neg-1");
+    db.prepare(
+      `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, content, feedback, expired) VALUES (?, 'dad', 'calendar', 'event', 'y', 'dismissed', 1)`
+    ).run("prior-neg-2");
+
+    await createMemoryFact({
+      userId: "dad",
+      fact: 'Found this calendar suggestion unhelpful: "Add a reminder?"',
+      category: "preferences",
+      source: "suggestion_feedback",
+      confidence: 0.7,
+    });
+
+    const calls: { messages: { role: string; content: string }[] }[] = [];
+    const fetchSpy = vi.spyOn(global, "fetch").mockImplementation(async (_url, init) => {
+      calls.push(JSON.parse((init as RequestInit).body as string));
+      return {
+        ok: true,
+        json: async () => ({ message: { content: "Add a reminder for the checkup?" } }),
+      } as Response;
+    });
+
+    try {
+      await runAdvisorDetectors("event");
+    } finally {
+      fetchSpy.mockRestore();
+    }
+
+    const calendarCall = calls.find((c) => c.messages.some((m) => m.role === "user" && m.content.includes("Checkup")));
+    const systemMessage = calendarCall?.messages.find((m) => m.role === "system")?.content;
+    expect(systemMessage).toContain('Found this calendar suggestion unhelpful: "Add a reminder?"');
+
+    const row = db
+      .prepare(`SELECT relevancy_score FROM ai_suggestions WHERE related_entity_id = 'evt-feedback-loop'`)
+      .get() as { relevancy_score: number };
+    expect(row.relevancy_score).toBeCloseTo(dampRelevancyScore(0.6, 2), 5);
+  });
+
+  it("verifies getTopMemories actually returns the fact used above (sanity check on the fixture)", async () => {
+    const memories = await getTopMemories("dad", 50);
+    expect(memories.some((m) => m.fact === 'Found this calendar suggestion unhelpful: "Add a reminder?"')).toBe(true);
   });
 });

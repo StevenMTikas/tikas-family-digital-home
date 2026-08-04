@@ -23,6 +23,7 @@ import {
   DocumentCategoriesApiError,
   type DocumentCategory,
 } from "@/lib/api/document-categories";
+import { getSubjects, renameSubject, deleteSubject, SubjectsApiError, type Subject } from "@/lib/api/subjects";
 
 export interface CurrentUser {
   id: string;
@@ -257,6 +258,8 @@ function MyProfileTab({
 
       <DocumentCategoriesSection isSuperAdmin={isSuperAdmin} />
 
+      <SubjectsSection isSuperAdmin={isSuperAdmin} />
+
       <Link href="/ai-settings" className="inline-block mt-4 text-[13px] font-semibold text-accent-strong">
         AI Settings — conversation history, what the AI knows about you, suggestions →
       </Link>
@@ -382,6 +385,138 @@ function DocumentCategoriesSection({ isSuperAdmin }: { isSuperAdmin: boolean }) 
                       type="button"
                       onClick={() => handleDelete(cat)}
                       disabled={busyId === cat.id}
+                      className="text-[11px] text-urgent disabled:opacity-60"
+                    >
+                      Delete
+                    </button>
+                  </>
+                ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubjectsSection({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      setSubjects(await getSubjects());
+    } catch (err) {
+      setError(err instanceof SubjectsApiError ? err.message : "Something went wrong.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleRename(id: string) {
+    if (!editValue.trim()) return;
+    setBusyId(id);
+    setError(null);
+    try {
+      await renameSubject(id, editValue.trim());
+      setEditingId(null);
+      await load();
+    } catch (err) {
+      setError(err instanceof SubjectsApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleDelete(subject: Subject) {
+    if (!confirm(`Delete the "${subject.name}" subject?`)) return;
+    setBusyId(subject.id);
+    setError(null);
+    try {
+      await deleteSubject(subject.id);
+      await load();
+    } catch (err) {
+      setError(err instanceof SubjectsApiError ? err.message : "Something went wrong.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="bg-surface rounded-2xl p-7 shadow-[0_8px_20px_rgba(58,52,44,0.05)] mt-5 max-w-[720px]">
+      <div className="text-xs font-semibold tracking-wide text-ink-muted uppercase mb-1">Subjects</div>
+      <p className="text-[11.5px] text-ink-muted mb-4">
+        {isSuperAdmin
+          ? "Rename or delete a subject used for homework tracking. Renaming updates everywhere it's referenced; deleting is blocked while any homework item still uses it."
+          : "Subjects currently used across the family's homework. Only the Super Admin can rename or delete one."}
+      </p>
+      {error && <p className="text-xs text-urgent mb-3">{error}</p>}
+      {loading ? (
+        <p className="text-xs text-ink-muted">Loading…</p>
+      ) : subjects.length === 0 ? (
+        <p className="text-xs text-ink-muted">No subjects yet.</p>
+      ) : (
+        <div className="flex flex-col">
+          {subjects.map((subject, i) => (
+            <div
+              key={subject.id}
+              className={`flex items-center gap-3 py-2.5 ${i > 0 ? "border-t border-ink/[0.07]" : ""}`}
+            >
+              {editingId === subject.id ? (
+                <input
+                  type="text"
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  autoFocus
+                  className="flex-1 px-3 py-1.5 rounded-xl border border-ink/15 text-[13px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40"
+                />
+              ) : (
+                <div className="flex-1 text-[13px] text-ink">{subject.name}</div>
+              )}
+              <div className="text-[11px] text-ink-muted w-28 text-right">
+                {subject.homeworkCount} item{subject.homeworkCount === 1 ? "" : "s"}
+              </div>
+              {isSuperAdmin &&
+                (editingId === subject.id ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleRename(subject.id)}
+                      disabled={busyId === subject.id}
+                      className="text-[11px] font-semibold text-accent-strong disabled:opacity-60"
+                    >
+                      Save
+                    </button>
+                    <button type="button" onClick={() => setEditingId(null)} className="text-[11px] text-ink-muted">
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(subject.id);
+                        setEditValue(subject.name);
+                        setError(null);
+                      }}
+                      className="text-[11px] text-ink-muted underline"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(subject)}
+                      disabled={busyId === subject.id}
                       className="text-[11px] text-urgent disabled:opacity-60"
                     >
                       Delete

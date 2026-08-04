@@ -11,6 +11,7 @@ import { getModelForRole, logAiInteraction } from "./index";
 import { getBaseLayerPrompt } from "./base-layer";
 import { ADVISOR_ROLE_PROMPT } from "./roles";
 import { createNotification } from "@/lib/core/notifications";
+import { getTopMemories, formatMemoriesForPrompt, type MemoryFact } from "./memory";
 
 export type AdvisorModule = "calendar" | "tasks" | "documents";
 
@@ -164,13 +165,31 @@ export async function suggestCategoryForDocument(existingContent: string): Promi
   return match ? match[1]!.trim().replace(/^["']|["']$/g, "") : null;
 }
 
+/**
+ * Split out from phraseFinding so it can be unit-tested without hitting
+ * Ollama (same pattern as buildAssistantMessages in index.ts). AI_Suggestions.md:
+ * feedback "informs tone and preference over time via AI_Memory" — this is
+ * the read side of that loop; the write side is app/api/ai-suggestions/[id]/route.ts.
+ */
+export function buildAdvisorSystemPrompt(finding: Finding, memories: MemoryFact[]): string {
+  const systemParts = [
+    getBaseLayerPrompt(),
+    "",
+    ADVISOR_ROLE_PROMPT,
+    "",
+    "What you know about this person's preferences (weigh negative feedback on similar past suggestions — soften tone or reconsider whether this is worth surfacing at all, without treating it as a hard rule):",
+    formatMemoriesForPrompt(memories),
+  ];
+  if (finding.module === "documents") systemParts.push("", categoryInstruction());
+  return systemParts.join("\n");
+}
+
 async function phraseFinding(finding: Finding): Promise<PhrasedFinding> {
   const model = getModelForRole("advisor");
-  const systemParts = [getBaseLayerPrompt(), "", ADVISOR_ROLE_PROMPT];
-  if (finding.module === "documents") systemParts.push("", categoryInstruction());
+  const memories = await getTopMemories(finding.userId);
 
   const messages = [
-    { role: "system" as const, content: systemParts.join("\n") },
+    { role: "system" as const, content: buildAdvisorSystemPrompt(finding, memories) },
     { role: "user" as const, content: finding.rawFinding },
   ];
   const reply = await ollamaChat(model, messages);
@@ -183,6 +202,31 @@ async function phraseFinding(finding: Finding): Promise<PhrasedFinding> {
     content: raw.slice(0, match.index).trim(),
     suggestedValue: match[1]!.trim().replace(/^["']|["']$/g, ""),
   };
+}
+
+// How much each past negative signal (thumbs-down or dismiss, undifferentiated
+// — the DB only records which one, not how many facts it produced) shrinks a
+// future suggestion's relevancy_score for that same module. AI_Suggestions.md
+// explicitly rules out a hard cutoff ("no fixed '3 thumbs-down = never show
+// this category again' logic"), so this decays the score geometrically with
+// a floor rather than zeroing it out — a module can always still surface,
+// just gets crowded out of the top-10 ordering (ai-suggestions/route.ts,
+// dashboard/page.tsx) more easily the more it's been rejected.
+const RELEVANCY_DAMPING_FACTOR = 0.85;
+const RELEVANCY_FLOOR = 0.1;
+
+/** Pure — how much a finding's base relevancy should shrink given prior negative feedback on that module. */
+export function dampRelevancyScore(baseScore: number, negativeFeedbackCount: number): number {
+  return Math.max(RELEVANCY_FLOOR, baseScore * Math.pow(RELEVANCY_DAMPING_FACTOR, negativeFeedbackCount));
+}
+
+function countNegativeFeedback(userId: string, module: AdvisorModule): number {
+  const row = getDb()
+    .prepare(
+      `SELECT COUNT(*) as count FROM ai_suggestions WHERE user_id = ? AND module = ? AND feedback IN ('thumbs_down', 'dismissed')`
+    )
+    .get(userId, module) as { count: number };
+  return row.count;
 }
 
 /**
@@ -198,6 +242,7 @@ export async function runAdvisorDetectors(triggerType: "event" | "weekly_check")
   let created = 0;
   for (const finding of findings) {
     const { content, suggestedValue } = await phraseFinding(finding);
+    const relevancyScore = dampRelevancyScore(finding.relevancyScore, countNegativeFeedback(finding.userId, finding.module));
     const suggestionId = randomUUID();
     db.prepare(
       `INSERT INTO ai_suggestions (id, user_id, module, trigger_type, display_context, relevancy_score, content, related_entity_id, suggested_value)
@@ -207,7 +252,7 @@ export async function runAdvisorDetectors(triggerType: "event" | "weekly_check")
       finding.userId,
       finding.module,
       triggerType,
-      finding.relevancyScore,
+      relevancyScore,
       content,
       finding.relatedEntityId,
       suggestedValue

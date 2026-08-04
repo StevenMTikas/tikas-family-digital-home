@@ -1,5 +1,22 @@
-import { describe, it, expect } from "vitest";
-import { decayedPriority, formatMemoriesForPrompt, type MemoryFact } from "./memory";
+process.env.DATABASE_PATH = ":memory:";
+
+import fs from "fs";
+import path from "path";
+import { beforeAll, describe, it, expect } from "vitest";
+import { getDb } from "@/db/client";
+import { decayedPriority, formatMemoriesForPrompt, createMemoryFact, getTopMemories, type MemoryFact } from "./memory";
+
+beforeAll(() => {
+  const schema = fs.readFileSync(path.resolve(__dirname, "../../../db/schema.sql"), "utf8");
+  const db = getDb();
+  db.exec(schema);
+  db.prepare(`INSERT INTO users (id, username, password_hash, full_name, role) VALUES (?, ?, 'x', ?, ?)`).run(
+    "dad",
+    "dad.test",
+    "Dad",
+    "super_admin"
+  );
+});
 
 describe("decayedPriority", () => {
   it("returns full confidence for a fact reinforced right now", () => {
@@ -37,5 +54,28 @@ describe("formatMemoriesForPrompt", () => {
 
   it("returns a placeholder when there are no memories yet", () => {
     expect(formatMemoriesForPrompt([])).toBe("No stored facts about this person yet.");
+  });
+});
+
+describe("createMemoryFact", () => {
+  it("defaults to full confidence when none is given", async () => {
+    await createMemoryFact({ userId: "dad", fact: "Prefers concise replies", source: "explicit_statement" });
+    const memories = await getTopMemories("dad", 50);
+    const fact = memories.find((m) => m.fact === "Prefers concise replies");
+    expect(fact?.confidence).toBe(1.0);
+  });
+
+  it("respects an explicit lower confidence, e.g. a dismissed suggestion's weaker negative signal", async () => {
+    await createMemoryFact({
+      userId: "dad",
+      fact: "Dismissed a calendar suggestion",
+      source: "suggestion_feedback",
+      category: "preferences",
+      confidence: 0.4,
+    });
+    const memories = await getTopMemories("dad", 50);
+    const fact = memories.find((m) => m.fact === "Dismissed a calendar suggestion");
+    expect(fact?.confidence).toBe(0.4);
+    expect(fact?.category).toBe("preferences");
   });
 });

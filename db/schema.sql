@@ -178,6 +178,39 @@ CREATE TABLE tasks (
     recurrence_until TEXT
 );
 
+-- ── Subject ──────────────────────────────────────────────────────────
+-- The manageable list backing a homework Task's subject (Homeschool.md,
+-- Phase 9). Same pattern as document_categories below, except there's no
+-- auto-create-on-write path from a free-text field — a Subject is only ever
+-- set through the Add/Edit Task form's picker, which itself inserts here on
+-- "+ New subject". A Super Admin can rename (cascades to every
+-- homework_details row referencing it) or delete (blocked while any
+-- homework_details row still uses it) from their profile page.
+CREATE TABLE subjects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- ── Homework Detail ──────────────────────────────────────────────────
+-- One row per homework Task — a companion to tasks, not new columns on
+-- tasks itself, since these fields are meaningless for the ~95% of tasks
+-- that are chores/errands (Homeschool.md). This row's existence is what
+-- marks a task as homework; there's no separate boolean flag. grade_or_score,
+-- parent_notes, and signed_off_by/signed_off_at are writable by an
+-- Admin/Super Admin only, regardless of who assigned the underlying task —
+-- enforced in app/api/tasks routes, not by a DB constraint.
+CREATE TABLE homework_details (
+    task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    subject_id TEXT NOT NULL REFERENCES subjects(id),
+    curriculum_reference TEXT,
+    grade_or_score TEXT,
+    parent_notes TEXT,
+    signed_off_by TEXT REFERENCES users(id),
+    signed_off_at TEXT
+);
+
 -- ── Document ─────────────────────────────────────────────────────────
 -- See Documents.md. No versioning for MVP. Connector-sourced fields (Phase 5,
 -- File_Connector_Architecture.md): a connector-synced document arrives as

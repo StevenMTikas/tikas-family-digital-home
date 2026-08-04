@@ -78,10 +78,15 @@ export default function AssistantBubble() {
   // closure captures its value at call time, so a background fetch that
   // resolves after the user has switched conversations would otherwise
   // silently overwrite the now-different active conversation's messages
-  // with stale data (the "my question disappeared" bug: a same-conversation
-  // race is also possible if a second send starts before the first one's
-  // post-stream refresh has landed).
+  // with stale data (the "my question disappeared" bug).
   const activeIdRef = useRef<string | null>(null);
+  // Monotonic per-send counter. activeIdRef alone only catches a
+  // *conversation switch* — it doesn't help when a second message is sent
+  // in the *same* conversation before the first send's post-stream refresh
+  // (below) has resolved, since activeIdRef.current still matches. Each
+  // handleSend captures the counter's value at send time; a refresh only
+  // applies if it's still the most recent send for this component.
+  const sendSeqRef = useRef(0);
 
   function setActiveConversation(id: string | null) {
     activeIdRef.current = id;
@@ -265,6 +270,8 @@ export default function AssistantBubble() {
       }
     }
 
+    const mySeq = ++sendSeqRef.current;
+
     setDraft("");
     setError(null);
     setSending(true);
@@ -310,15 +317,19 @@ export default function AssistantBubble() {
       // Replace the optimistic temp-id messages with the persisted rows (real
       // ids + actual source) so feedback/escalate have something to target,
       // and refresh the list so a freshly auto-generated title shows up.
-      // Guarded the same way — this refresh is only valid for the
-      // conversation it was requested for, not whatever's active by the
-      // time it resolves (the "my question disappeared" bug: switching
-      // conversations, or sending a second message, before this landed
-      // let a stale snapshot silently overwrite newer content).
-      getConversations().then(setConversations).catch(() => {});
+      // Guarded against both a conversation switch (activeIdRef) and a
+      // newer send in this same conversation (sendSeqRef) landing first —
+      // either one means this snapshot is stale and would silently
+      // overwrite newer content (the "my question disappeared" bug).
+      getConversations()
+        .then((list) => {
+          if (sendSeqRef.current !== mySeq) return;
+          setConversations(list);
+        })
+        .catch(() => {});
       getConversation(conversationId)
         .then((detail) => {
-          if (activeIdRef.current !== conversationId) return;
+          if (activeIdRef.current !== conversationId || sendSeqRef.current !== mySeq) return;
           setMessages(detail.messages);
           setCanEscalate(detail.canEscalate);
         })

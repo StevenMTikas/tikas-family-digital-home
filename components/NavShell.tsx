@@ -29,6 +29,11 @@ const NAV_ITEMS = [
   // docs/02_Modules/Family_Board.md.
   { href: "/board", label: "Family Board", icon: "📌" },
   { href: "/search", label: "Search", icon: "🔍" },
+  // Added 2026-08-02 — Email was a fully built, working module with no way
+  // to reach it from the main app (the My Profile "Add Connection" tab
+  // covers initial setup, but not the everyday "go check my email summary"
+  // path every other module gets via this nav). See docs/02_Modules/Email.md.
+  { href: "/email", label: "Email", icon: "✉️" },
 ];
 
 export interface NavShellProps {

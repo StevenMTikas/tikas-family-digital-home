@@ -7,6 +7,7 @@ import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
 import { suggestCategoryForDocument } from "@/lib/core/ai/advisor";
 import { createMemoryFact } from "@/lib/core/ai/memory";
+import { feedbackToMemoryFact, type SuggestionFeedback } from "./feedback";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -38,17 +39,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     updates.feedback = body.feedback;
     updates.feedback_at = new Date().toISOString();
 
-    // AI_Memory.md documents "suggestion_feedback" as one of the three ways
-    // a fact gets created/reinforced — never actually wired up until now
-    // (2026-08-01). A thumbs-up on a suggestion is the household confirming
-    // it's a real, worth-remembering fact about that person; thumbs-down
-    // isn't a negative-fact signal, just "not useful," so it writes nothing.
-    if (body.feedback === "thumbs_up") {
-      try {
-        await createMemoryFact({ userId: row.user_id, fact: row.content, source: "suggestion_feedback" });
-      } catch (err) {
-        console.error("[ai-suggestions] Could not record memory fact from feedback:", err);
-      }
+    // AI_Suggestions.md: all three feedback types — thumbs-up, thumbs-down,
+    // dismiss — "inform tone and preference over time" via AI_Memory, with
+    // thumbs-down weighted as a stronger negative signal than a dismiss.
+    // Thumbs-down/dismiss only started writing anything here as of
+    // 2026-08-03 (thumbs-up had been wired the same day, but the negative
+    // signals were dropped entirely — see feedback.ts).
+    try {
+      const memoryWrite = feedbackToMemoryFact(body.feedback as SuggestionFeedback, row.module, row.content);
+      await createMemoryFact({ userId: row.user_id, source: "suggestion_feedback", ...memoryWrite });
+    } catch (err) {
+      console.error("[ai-suggestions] Could not record memory fact from feedback:", err);
     }
   }
   if (body?.accepted === true) {

@@ -122,6 +122,31 @@ Join table — an event can be assigned to multiple family members.
 
 *Sub-tasks are not in MVP scope — flat task list only. See Future Enhancements.*
 
+### Subject
+
+The manageable list backing a homework Task's subject (2026-08-03, see `Homeschool.md`). Follows the same pattern as Document Category below — a Super Admin can rename (cascades to every `Homework_Detail` referencing it) or delete (blocked while any `Homework_Detail` still uses it) from their profile page's "Subjects" section. Unlike Document Category, there's no auto-create-on-write path from a free-text field — Subject is only ever set through the managed picker on the Add/Edit Task form, which offers a "+ New subject" option backed by this same table.
+
+| Field | Notes |
+|---|---|
+| id | |
+| name | e.g. Math, Reading, Science, History — free text, unique, Super-Admin-managed |
+
+### Homework_Detail
+
+One row per homework Task — a companion to Task (see `Homeschool.md`), not new columns on Task itself, since these fields are meaningless for the other ~95% of Tasks (chores, errands). This row's existence is what marks a Task as homework; there's no separate boolean flag.
+
+| Field | Notes |
+|---|---|
+| task_id | FK to Task, unique — one Homework_Detail per Task |
+| subject_id | FK to Subject |
+| curriculum_reference | optional free text, e.g. "Saxon Math Lesson 42," "Reading Log Week 3" |
+| grade_or_score | optional free text, e.g. "B+", "18/20", "Complete" — deliberately loose typing, homeschool grading isn't standardized |
+| parent_notes | optional free text |
+| signed_off_by | FK to User; who reviewed it — a real second checkpoint beyond the owner marking the Task `done`, since "I did it" and "a parent reviewed it" are different events in a homeschool context |
+| signed_off_at | |
+
+*`grade_or_score`, `parent_notes`, and `signed_off_by`/`signed_off_at` are writable by an Admin/Super Admin only, regardless of who assigned the underlying Task — see `Homeschool.md`'s Permissions section for why this is a narrow exception to Tasks.md's normal "assigner or admin can edit" rule.*
+
 ### Document
 
 | Field | Notes |
@@ -375,6 +400,7 @@ A browser/device's Web Push registration (Phase 6, see Notifications.md's "Andro
 - **Memory** → optionally links to one **Event**
 - **Document** and **Family_Knowledge_Item** → belong to a **Folder**, which defines their permission boundary
 - **AI_Suggestion** → belongs to one **User**; optionally referenced by a **Notification**
+- **Task** → optionally has one **Homework_Detail**, which belongs to one **Subject** (see `Homeschool.md`)
 
 ## AI Responsibilities
 

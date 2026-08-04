@@ -206,6 +206,16 @@ export function topUpTaskSeries(recurrenceId: string, windowEndIso: string): num
       latest.recurrence_frequency
     );
 
+    // Homework.md: a homework series' Subject carries forward (it's the same
+    // class every occurrence), but curriculum reference/grade/notes/sign-off
+    // are occurrence-specific and start fresh, same as status.
+    const latestHomework = db
+      .prepare(`SELECT subject_id FROM homework_details WHERE task_id = ?`)
+      .get(latest.id) as { subject_id: string } | undefined;
+    if (latestHomework) {
+      db.prepare(`INSERT INTO homework_details (task_id, subject_id) VALUES (?, ?)`).run(id, latestHomework.subject_id);
+    }
+
     created++;
   }
   return created;

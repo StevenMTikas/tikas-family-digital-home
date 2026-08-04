@@ -78,11 +78,12 @@ export async function createMemoryFact(input: {
   category?: MemoryCategory;
   source: MemorySource;
   isSensitive?: boolean;
+  confidence?: number;
 }): Promise<void> {
   getDb()
     .prepare(
       `INSERT INTO ai_memory (id, user_id, fact, category, source, confidence, last_reinforced_at, is_sensitive)
-       VALUES (?, ?, ?, ?, ?, 1.0, ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       randomUUID(),
@@ -90,6 +91,7 @@ export async function createMemoryFact(input: {
       input.fact,
       input.category ?? null,
       input.source,
+      input.confidence ?? 1.0,
       new Date().toISOString(),
       input.isSensitive ? 1 : 0
     );
