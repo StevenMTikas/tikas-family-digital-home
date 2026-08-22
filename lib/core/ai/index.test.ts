@@ -13,10 +13,15 @@ import { requestOutsideCallApproval, isAiEnabledForUser, streamAssistantReply, b
 
 const { mockAnthropicStream } = vi.hoisted(() => ({ mockAnthropicStream: vi.fn() }));
 
+// A real class, not vi.fn().mockImplementation(() => ({...})) — vitest 4's
+// mock transform can surface that as a plain arrow function internally,
+// which JS can't `new` ("X is not a constructor"), even though the
+// underlying code being tested does `new Anthropic()`. A real class is
+// always a valid constructor regardless of how vitest wraps it.
 vi.mock("@anthropic-ai/sdk", () => ({
-  default: vi.fn().mockImplementation(() => ({
-    messages: { stream: mockAnthropicStream },
-  })),
+  default: class {
+    messages = { stream: mockAnthropicStream };
+  },
 }));
 
 function fakeAnthropicStream(deltas: string[]) {

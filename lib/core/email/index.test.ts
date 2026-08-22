@@ -14,17 +14,22 @@ const fakeMessages = [
   { uid: 2, envelope: { subject: "50% off sale this weekend!", from: [{ address: "deals@shop.example" }] } },
 ];
 
+// A real class, not vi.fn().mockImplementation(() => ({...})) — vitest 4's
+// mock transform can surface that as a plain arrow function internally,
+// which JS can't `new` ("X is not a constructor"), even though the
+// underlying code being tested does `new ImapFlow(...)`. A real class is
+// always a valid constructor regardless of how vitest wraps it.
 vi.mock("imapflow", () => ({
-  ImapFlow: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    getMailboxLock: vi.fn().mockResolvedValue({ release: vi.fn() }),
-    search: vi.fn().mockResolvedValue([1, 2]),
-    fetch: vi.fn().mockImplementation(async function* () {
+  ImapFlow: class {
+    connect = vi.fn().mockResolvedValue(undefined);
+    getMailboxLock = vi.fn().mockResolvedValue({ release: vi.fn() });
+    search = vi.fn().mockResolvedValue([1, 2]);
+    fetch = vi.fn().mockImplementation(async function* () {
       for (const m of fakeMessages) yield m;
-    }),
-    logout: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn(),
-  })),
+    });
+    logout = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn();
+  },
 }));
 
 vi.mock("@/lib/core/ai/ollama", () => ({
@@ -43,11 +48,12 @@ const { mockGenerateAuthUrl, mockGetToken, mockSetCredentials, mockGetProfile, m
 vi.mock("googleapis", () => ({
   google: {
     auth: {
-      OAuth2: vi.fn().mockImplementation(() => ({
-        generateAuthUrl: mockGenerateAuthUrl,
-        getToken: mockGetToken,
-        setCredentials: mockSetCredentials,
-      })),
+      // Real class — see the ImapFlow mock's comment above for why (vitest 4).
+      OAuth2: class {
+        generateAuthUrl = mockGenerateAuthUrl;
+        getToken = mockGetToken;
+        setCredentials = mockSetCredentials;
+      },
     },
     gmail: vi.fn().mockImplementation(() => ({
       users: {
