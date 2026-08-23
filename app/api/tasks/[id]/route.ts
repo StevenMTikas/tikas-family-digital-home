@@ -115,6 +115,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const editScope = parseScope(body?.editScope);
   const applyToSeries = row.recurrence_id !== null && editScope !== "this";
 
+  // Homework.md fields — subject/curriculumReference follow canEdit;
+  // gradeOrScore/parentNotes/signedOff follow the narrower canGrade. All
+  // apply to just this occurrence, never fanned out across a series.
+  const hasSubjectField = "subject" in (body ?? {});
+  const hasCurriculumField = "curriculumReference" in (body ?? {});
+  // Homeschool.md: an assignment is always public, enforced here too (not
+  // just by the Homeschool screen never showing a visibility control) — a
+  // task that already has a subject, or is gaining one in this same
+  // request, can't be set/left private via a direct API call.
+  const isOrWillBeHomework = row.subject_id !== null || (hasSubjectField && typeof body.subject === "string" && body.subject.trim() !== "");
+
   // Safe to apply across a whole series — never due_date, which only ever
   // moves the single occurrence being edited.
   const seriesUpdates: Record<string, unknown> = {};
@@ -122,17 +133,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body?.description === "string" || body?.description === null) {
     seriesUpdates.description = body.description;
   }
-  if (body?.visibility === "public" || body?.visibility === "private") seriesUpdates.visibility = body.visibility;
+  if (body?.visibility === "public" || body?.visibility === "private") {
+    seriesUpdates.visibility = isOrWillBeHomework ? "public" : body.visibility;
+  }
 
   const dueDateUpdate = typeof body?.dueDate === "string" && body.dueDate ? body.dueDate : undefined;
   const changingStatus = body?.status === "done" || body?.status === "not_done";
   const changingDetails = Object.keys(seriesUpdates).length > 0 || !!dueDateUpdate;
-
-  // Homework.md fields — subject/curriculumReference follow canEdit;
-  // gradeOrScore/parentNotes/signedOff follow the narrower canGrade. All
-  // apply to just this occurrence, never fanned out across a series.
-  const hasSubjectField = "subject" in (body ?? {});
-  const hasCurriculumField = "curriculumReference" in (body ?? {});
   const changingHomeworkDetails = hasSubjectField || hasCurriculumField;
   const hasGradeField = "gradeOrScore" in (body ?? {});
   const hasNotesField = "parentNotes" in (body ?? {});

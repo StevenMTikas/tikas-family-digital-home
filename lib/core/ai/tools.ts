@@ -44,6 +44,12 @@ const TOOL_RELEVANT_KEYWORDS = [
   "tomorrow",
   "this week",
   "next week",
+  // "bills" has no dedicated data model — it's really Tasks/Events the
+  // household already tracks (e.g. "Pay electricity bill") — but it's real,
+  // recurring household vocabulary (a live user question, 2026-08-23) that
+  // deserves the same tool access as "task"/"due", not a generic non-answer.
+  "bill",
+  "bills",
   // get_user_profile — a cross-user AI_Memory lookup, real family data, so
   // it needs the same "stay local, don't auto-route to frontier" treatment
   // as the rest of these (2026-08-01, added alongside that tool).

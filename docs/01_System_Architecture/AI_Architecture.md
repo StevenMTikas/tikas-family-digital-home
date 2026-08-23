@@ -24,6 +24,7 @@ Defines the technical design of the AI engine underneath Tikas Family Digital Ho
   - **Thumbs-down escalation, gated by outside-call approval.** New per-message feedback on Assistant replies (see `Assistant.md`) lets a user rate a local-sourced reply down and, if they hold both `approveOutsideCalls` and `approveSensitiveOutsideTransmission` (`AI_Permissions.md` — AI_Memory content sent this way is treated as sensitive by default), preview and confirm sending the question, the specific AI_Memory facts used, and the local answer to the frontier model for a second opinion.
   - **Provider is hardcoded to Anthropic for MVP** — see `Future_Ideas.md` for the deferred multi-provider/bring-your-own-key design intended for a commercial release.
 - **Performance target:** as fast as the host hardware allows for MVP — no fixed latency requirement yet.
+- **Voice speech-to-text runs separately, via Whisper** (`Voice.md`, `Decision_Log.md` #009) — `lib/core/ai/whisper.ts` loads `whisper-base.en` through `@huggingface/transformers` (ONNX Runtime, not Ollama) as a module-level singleton, transcribing tap-to-talk audio in-process with no outside call. Not part of the Assistant/Advisor/Guardian chat-completion models above; a separate local model serving a separate purpose.
 
 ## Memory: Hybrid Model
 

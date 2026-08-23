@@ -22,6 +22,10 @@ const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
   { href: "/calendar", label: "Calendar", icon: "📅" },
   { href: "/tasks", label: "Tasks", icon: "✅" },
+  // Added 2026-08-23 — a dedicated screen for homework/curriculum tracking,
+  // deliberately separate from Tasks even though it reuses the same Task
+  // entity underneath. See docs/02_Modules/Homeschool.md.
+  { href: "/homeschool", label: "Homeschool", icon: "🎓" },
   { href: "/content", label: "Content", icon: "📁" },
   // Added 2026-08 alongside the external_viewer feature — a standalone
   // module (not folded into Navigation.md's original 5-item spec) so it has

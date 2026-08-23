@@ -110,6 +110,20 @@ describe("POST /api/tasks — homework", () => {
     expect(body.signedOffAt).not.toBeNull();
   });
 
+  it("forces visibility to public for a homework item even if private was requested", async () => {
+    const res = await POST(
+      postReq("malachi", { title: "Reading Log", dueDate: "2026-01-05", subject: "Reading", visibility: "private" })
+    );
+    const body = await res.json();
+    expect(body.visibility).toBe("public");
+  });
+
+  it("still honors a private visibility request for a plain, non-homework task", async () => {
+    const res = await POST(postReq("malachi", { title: "Personal errand", dueDate: "2026-01-05", visibility: "private" }));
+    const body = await res.json();
+    expect(body.visibility).toBe("private");
+  });
+
   it("carries a homework series' subject forward onto generated future occurrences", async () => {
     const res = await POST(
       postReq("malachi", { title: "Reading Log", dueDate: "2026-01-05", subject: "Reading", recurrence: "daily" })

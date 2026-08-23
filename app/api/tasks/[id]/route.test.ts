@@ -149,6 +149,26 @@ describe("PATCH /api/tasks/[id] — subject changes", () => {
     expect(res.status).toBe(200);
     expect((await res.json()).subjectName).toBe("Science");
   });
+
+  it("forces visibility to public when a subject is set in the same request that tries to go private", async () => {
+    const db = getDb();
+    const taskId = randomUUID();
+    db.prepare(
+      `INSERT INTO tasks (id, title, owner_id, due_date, status, created_by, assigned_by, visibility)
+       VALUES (?, 'Clean room', 'malachi', '2026-01-05', 'not_done', 'malachi', 'malachi', 'public')`
+    ).run(taskId);
+
+    const res = await PATCH(patchReq("malachi", { subject: "Science", visibility: "private" }), {
+      params: Promise.resolve({ id: taskId }),
+    });
+    expect((await res.json()).visibility).toBe("public");
+  });
+
+  it("blocks setting an already-homework task to private, even without touching subject", async () => {
+    const id = makeMalachiHomework();
+    const res = await PATCH(patchReq("malachi", { visibility: "private" }), { params: Promise.resolve({ id }) });
+    expect((await res.json()).visibility).toBe("public");
+  });
 });
 
 describe("DELETE /api/tasks/[id] — homework cleanup", () => {

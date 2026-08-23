@@ -150,42 +150,59 @@ export async function* streamAssistantReply(userId: string, conversationId: stri
   // local whenever any recent message needs family data, or no frontier
   // connection is configured.
   let source: "local" | "frontier" = "local";
-  if (!needsFamilyData && latestUserMessage && isFrontierConfigured()) {
-    source = "frontier";
-    const frontierTurns: FrontierTurn[] = recentWindow.map((m) => ({ role: m.role, content: m.content }));
-    for await (const chunk of streamFrontierReply(frontierTurns)) {
-      full += chunk;
-      yield chunk;
-    }
-  } else {
-    const tools = needsFamilyData ? ASSISTANT_TOOLS : undefined;
+  try {
+    if (!needsFamilyData && latestUserMessage && isFrontierConfigured()) {
+      source = "frontier";
+      const frontierTurns: FrontierTurn[] = recentWindow.map((m) => ({ role: m.role, content: m.content }));
+      for await (const chunk of streamFrontierReply(frontierTurns)) {
+        full += chunk;
+        yield chunk;
+      }
+    } else {
+      const tools = needsFamilyData ? ASSISTANT_TOOLS : undefined;
 
-    for await (const event of ollamaChatStream(model, messages, tools)) {
-      if (event.type === "tool_calls") {
-        const toolMessages: ChatMessage[] = [];
-        for (const call of event.calls) {
-          const result = await runTool(call.function.name, call.function.arguments, userId);
-          toolMessages.push({ role: "tool", content: result });
-        }
-        const followUpMessages: ChatMessage[] = [
-          ...messages,
-          { role: "assistant", content: "", tool_calls: event.calls },
-          ...toolMessages,
-        ];
-        // No tools on the follow-up call — one round of tool use per reply
-        // keeps this simple and avoids an unbounded call loop.
-        for await (const followUp of ollamaChatStream(model, followUpMessages)) {
-          if (followUp.type === "content") {
-            full += followUp.text;
-            yield followUp.text;
+      for await (const event of ollamaChatStream(model, messages, tools)) {
+        if (event.type === "tool_calls") {
+          const toolMessages: ChatMessage[] = [];
+          for (const call of event.calls) {
+            const result = await runTool(call.function.name, call.function.arguments, userId);
+            toolMessages.push({ role: "tool", content: result });
           }
+          const followUpMessages: ChatMessage[] = [
+            ...messages,
+            { role: "assistant", content: "", tool_calls: event.calls },
+            ...toolMessages,
+          ];
+          // No tools on the follow-up call — one round of tool use per reply
+          // keeps this simple and avoids an unbounded call loop.
+          for await (const followUp of ollamaChatStream(model, followUpMessages)) {
+            if (followUp.type === "content") {
+              full += followUp.text;
+              yield followUp.text;
+            }
+          }
+          break;
+        } else {
+          full += event.text;
+          yield event.text;
         }
-        break;
-      } else {
-        full += event.text;
-        yield event.text;
       }
     }
+  } catch (err) {
+    // Critical: this must still fall through to the persistence below rather
+    // than letting the exception propagate out of the generator. A failure
+    // that skips persistence leaves the user's question as an orphaned,
+    // unanswered turn in conversation history — and since buildAssistantMessages
+    // sends the *entire* history on every subsequent call, a stack of several
+    // such orphaned turns is exactly what was found (2026-08-23) to make
+    // llama3.1:8b abandon Ollama's real tool-calling API and instead narrate
+    // a fake, prose-wrapped tool call as plain text. Persisting a real (if
+    // apologetic) assistant turn here keeps conversation history well-formed
+    // no matter how the underlying call failed.
+    console.error("[assistant] streamAssistantReply failed:", err);
+    const fallback = "\n\n[The Assistant hit an error responding. Please try again.]";
+    full += fallback;
+    yield fallback;
   }
 
   const db = getDb();

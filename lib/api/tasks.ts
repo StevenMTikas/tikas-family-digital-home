@@ -24,21 +24,26 @@ export interface Task {
   visibility: "public" | "private";
   recurrenceId: string | null;
   recurrenceFrequency: RecurrenceFrequency | null;
-  // Homeschool.md: presence of subjectId is what marks this Task as homework
-  // — a plain chore/errand Task has all of these null.
-  subjectId: string | null;
-  subjectName: string | null;
-  curriculumReference: string | null;
-  gradeOrScore: string | null;
-  parentNotes: string | null;
-  signedOffBy: string | null;
-  signedOffAt: string | null;
   canEdit: boolean;
   canComplete: boolean;
-  // Homeschool.md: Admin/Super-Admin authority over the owner, regardless of
-  // who assigned the task — narrower than canEdit, gates gradeOrScore/
-  // parentNotes/signedOff specifically.
-  canGrade: boolean;
+  // Homeschool.md fields — present (never undefined) on anything that comes
+  // back from the API, but optional here because app/tasks/page.tsx's
+  // server-rendered initial data deliberately doesn't query them at all
+  // (Tasks shows plain tasks only; app/homeschool is the dedicated homework
+  // screen, see docs/02_Modules/Homeschool.md). Presence of subjectId is
+  // what marks a Task as homework — a plain chore/errand Task has all of
+  // these null/false.
+  subjectId?: string | null;
+  subjectName?: string | null;
+  curriculumReference?: string | null;
+  gradeOrScore?: string | null;
+  parentNotes?: string | null;
+  signedOffBy?: string | null;
+  signedOffAt?: string | null;
+  // Admin/Super-Admin authority over the owner, regardless of who assigned
+  // the task — narrower than canEdit, gates gradeOrScore/parentNotes/
+  // signedOff specifically.
+  canGrade?: boolean;
 }
 
 export class TasksApiError extends Error {}

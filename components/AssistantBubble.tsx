@@ -28,25 +28,57 @@ import {
   type EscalationPreview,
 } from "@/lib/api/assistant";
 
-// Web Speech API — Voice.md's MVP choice (Decision_Log.md notes the
-// tradeoff: Chrome/Android's SpeechRecognition isn't fully on-device, unlike
-// SpeechSynthesis which is — see Future_Ideas.md for the local-Whisper
-// upgrade path). Feature-detected per browser since Firefox has neither.
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  start(): void;
-  stop(): void;
-  onresult: ((event: { results: { [index: number]: { [index: number]: { transcript: string } } } }) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-};
+// Speech-to-text: local Whisper via app/api/assistant/transcribe (Voice.md,
+// Decision_Log.md). Replaces the earlier browser Web Speech API, which on
+// Chrome/Android sent audio to Google's servers and wasn't actually
+// on-device — see Future_Ideas.md's since-resolved local-Whisper entry.
+// MediaRecorder captures the tap-to-talk audio; decoding/resampling happens
+// client-side via the Web Audio API since Node has no AudioContext to decode
+// compressed audio (webm/opus) itself — see the transcribe route's header
+// comment for the full pipeline and the explicit little-endian wire format.
 
-function getSpeechRecognition(): (new () => SpeechRecognitionLike) | null {
-  if (typeof window === "undefined") return null;
-  const w = window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike };
-  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+function isVoiceInputSupported(): boolean {
+  return (
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia &&
+    typeof MediaRecorder !== "undefined"
+  );
+}
+
+// Matches app/api/assistant/transcribe/route.ts's decodePcmLE.
+function encodePcmLE(pcm: Float32Array): ArrayBuffer {
+  const buffer = new ArrayBuffer(pcm.length * 4);
+  const view = new DataView(buffer);
+  for (let i = 0; i < pcm.length; i++) view.setFloat32(i * 4, pcm[i] ?? 0, true);
+  return buffer;
+}
+
+const TRANSCRIBE_SAMPLE_RATE = 16000;
+
+// Decodes recorded audio (whatever codec MediaRecorder used, typically
+// webm/opus) into mono PCM at the model's expected sample rate, entirely in
+// the browser — decodeAudioData handles the codec, OfflineAudioContext
+// handles the resample/downmix, so the server never needs an audio decoder.
+async function decodeToPcm16k(blob: Blob): Promise<Float32Array> {
+  const arrayBuffer = await blob.arrayBuffer();
+  const AudioContextCtor =
+    window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+  const audioCtx = new AudioContextCtor();
+  let decoded: AudioBuffer;
+  try {
+    decoded = await audioCtx.decodeAudioData(arrayBuffer);
+  } finally {
+    audioCtx.close();
+  }
+
+  const frameCount = Math.max(1, Math.ceil(decoded.duration * TRANSCRIBE_SAMPLE_RATE));
+  const offlineCtx = new OfflineAudioContext(1, frameCount, TRANSCRIBE_SAMPLE_RATE);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = decoded;
+  source.connect(offlineCtx.destination);
+  source.start();
+  const rendered = await offlineCtx.startRendering();
+  return rendered.getChannelData(0);
 }
 
 function isSpeechSynthesisSupported(): boolean {
@@ -71,7 +103,8 @@ export default function AssistantBubble() {
   const [escalationPreview, setEscalationPreview] = useState<EscalationPreview | null>(null);
   const [escalationBusy, setEscalationBusy] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const lastReplyRef = useRef("");
   const draftInputRef = useRef<HTMLTextAreaElement>(null);
   // Mirrors activeId for use inside async callbacks — state read in a
@@ -124,36 +157,61 @@ export default function AssistantBubble() {
     window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
   }
 
-  function handleMicToggle() {
+  async function handleMicToggle() {
     if (listening) {
-      recognitionRef.current?.stop(); // Voice.md: "stops immediately when the button is... tapped again"
+      mediaRecorderRef.current?.stop(); // Voice.md: "stops immediately when the button is... tapped again" — rest of the pipeline runs in onstop below
       return;
     }
 
-    const Recognition = getSpeechRecognition();
-    if (!Recognition) {
+    if (!isVoiceInputSupported()) {
       setError("Voice input isn't supported in this browser.");
       return;
     }
 
-    const recognition = new Recognition();
-    recognition.lang = "en-US";
-    recognition.interimResults = false;
-    recognition.continuous = false; // tap-to-talk, per Voice.md — no passive/always-listening
-    recognition.onresult = (event) => {
-      const transcript = event.results[0]?.[0]?.transcript;
-      if (transcript) handleSend(transcript);
-    };
-    recognition.onerror = () => {
-      setListening(false);
-      setError("Couldn't hear that — try again.");
-    };
-    recognition.onend = () => setListening(false);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setError("Couldn't access the microphone — check permissions and try again.");
+      return;
+    }
 
-    recognitionRef.current = recognition;
+    const recorder = new MediaRecorder(stream);
+    audioChunksRef.current = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) audioChunksRef.current.push(event.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop()); // release the mic indicator, tap-to-talk only, per Voice.md
+      setListening(false);
+      const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType });
+      audioChunksRef.current = [];
+
+      try {
+        const pcm = await decodeToPcm16k(blob);
+        const res = await fetch("/api/assistant/transcribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: encodePcmLE(pcm),
+        });
+        if (!res.ok) throw new Error("Transcription request failed.");
+        const { text } = await res.json();
+        if (text) {
+          handleSend(text);
+        } else {
+          setError("Couldn't hear that — try again.");
+        }
+      } catch {
+        // No fallback to a cloud STT service here on purpose — that would
+        // reintroduce the exact privacy gap local Whisper exists to close.
+        setError("Couldn't hear that — try again.");
+      }
+    };
+
+    mediaRecorderRef.current = recorder;
     setListening(true);
     setError(null);
-    recognition.start();
+    recorder.start();
   }
 
   async function handleOpen() {
@@ -526,7 +584,7 @@ export default function AssistantBubble() {
                   disabled={sending}
                   className="flex-1 border border-ink/15 rounded-2xl px-4 py-2.5 text-[13.5px] text-ink focus:outline-none focus:ring-2 focus:ring-accent/40 resize-none max-h-[120px] overflow-y-auto"
                 />
-                {getSpeechRecognition() && (
+                {isVoiceInputSupported() && (
                   <button
                     type="button"
                     onClick={handleMicToggle}

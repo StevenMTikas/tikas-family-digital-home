@@ -1,6 +1,8 @@
 // Tasks module. See docs/02_Modules/Tasks.md: self-assignment for everyone,
 // parent-to-child assignment for Admin/Super Admin only, completion rights
 // broader than editing rights, Overdue/Today/This Week/Completed grouping.
+// Plain tasks only — homework/curriculum tracking lives on its own
+// dedicated screen (app/homeschool), not here; see docs/02_Modules/Homeschool.md.
 //
 // Initial data fetched directly from the database, per
 // Application_Architecture.md — mirrors the query logic in
@@ -26,13 +28,6 @@ interface TaskRow {
   visibility: "public" | "private";
   recurrence_id: string | null;
   recurrence_frequency: TaskData["recurrenceFrequency"];
-  subject_id: string | null;
-  subject_name: string | null;
-  curriculum_reference: string | null;
-  grade_or_score: string | null;
-  parent_notes: string | null;
-  signed_off_by: string | null;
-  signed_off_at: string | null;
 }
 
 export default async function TasksPage() {
@@ -42,15 +37,7 @@ export default async function TasksPage() {
 
   const db = getDb();
 
-  const rows = db
-    .prepare(
-      `SELECT t.*, hd.subject_id, s.name AS subject_name, hd.curriculum_reference,
-              hd.grade_or_score, hd.parent_notes, hd.signed_off_by, hd.signed_off_at
-       FROM tasks t
-       LEFT JOIN homework_details hd ON hd.task_id = t.id
-       LEFT JOIN subjects s ON s.id = hd.subject_id`
-    )
-    .all() as TaskRow[];
+  const rows = db.prepare(`SELECT * FROM tasks`).all() as TaskRow[];
 
   const tasks: TaskData[] = rows
     .filter(
@@ -71,21 +58,11 @@ export default async function TasksPage() {
       visibility: row.visibility,
       recurrenceId: row.recurrence_id,
       recurrenceFrequency: row.recurrence_frequency,
-      subjectId: row.subject_id,
-      subjectName: row.subject_name,
-      curriculumReference: row.curriculum_reference,
-      gradeOrScore: row.grade_or_score,
-      parentNotes: row.parent_notes,
-      signedOffBy: row.signed_off_by,
-      signedOffAt: row.signed_off_at,
       // Not canManageUser — its "self" clause would wrongly let a task's
       // owner edit their own task even when someone else assigned it.
       canEdit: actor.id === row.assigned_by || hasAdminAuthorityOver(actor, row.owner_id),
       canComplete:
         actor.id === row.owner_id || actor.id === row.assigned_by || canManageUser(actor, row.owner_id),
-      // Homeschool.md: Admin/Super-Admin authority over the owner, no
-      // self-assigner carve-out — a child can't grade their own homework.
-      canGrade: hasAdminAuthorityOver(actor, row.owner_id),
     }));
 
   const memberRows = db
@@ -98,18 +75,12 @@ export default async function TasksPage() {
     calendarColor: row.calendar_color,
   }));
 
-  // Homeschool.md: which owners this actor could grade homework for, so the
-  // Add/Edit Task form can show/hide grade/notes/sign-off fields client-side
-  // without a round trip — matches hasAdminAuthorityOver exactly.
-  const canGradeOwnerIds = familyMembers.filter((m) => hasAdminAuthorityOver(actor, m.id)).map((m) => m.id);
-
   return (
     <TasksPageClient
       tasks={tasks}
       familyMembers={familyMembers}
       currentUserId={actor.id}
       canAssignToOthers={actor.role === "admin" || actor.role === "super_admin"}
-      canGradeOwnerIds={canGradeOwnerIds}
       todayIso={toISODate(new Date())}
     />
   );

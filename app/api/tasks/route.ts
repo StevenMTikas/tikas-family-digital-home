@@ -113,11 +113,14 @@ export async function POST(req: NextRequest) {
   const title = typeof body?.title === "string" ? body.title.trim() : "";
   const description = typeof body?.description === "string" ? body.description.trim() || null : null;
   const dueDate = typeof body?.dueDate === "string" ? body.dueDate : null;
-  const visibility = body?.visibility === "private" ? "private" : "public";
   const ownerId = typeof body?.ownerId === "string" && body.ownerId ? body.ownerId : actorId;
   const recurrenceFrequency = RECURRENCE_FREQUENCIES.includes(body?.recurrence) ? (body.recurrence as RecurrenceFrequency) : null;
   const subjectName = typeof body?.subject === "string" ? body.subject.trim() : "";
   const curriculumReference = typeof body?.curriculumReference === "string" ? body.curriculumReference.trim() || null : null;
+  // Homeschool.md: an assignment (anything with a Subject) is always public
+  // — enforced server-side, not just by the Homeschool screen never showing
+  // a visibility control, so a direct API call can't sneak a private one in.
+  const visibility = subjectName ? "public" : body?.visibility === "private" ? "private" : "public";
 
   if (!title || !dueDate) {
     return errorResponse("INVALID_INPUT", "Title and due date are required.", 400);

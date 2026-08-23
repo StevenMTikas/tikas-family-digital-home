@@ -201,6 +201,26 @@ describe("streamAssistantReply — hybrid local/frontier routing", () => {
     expect(lastMessageRow(conversationId)).toMatchObject({ role: "assistant", source: "local" });
   });
 
+  it("persists a fallback assistant reply instead of leaving the turn orphaned when Ollama is unreachable", async () => {
+    // Real incident (2026-08-23): Ollama being down meant streamAssistantReply
+    // threw before reaching its own persistence step, leaving several
+    // consecutive user turns with no assistant reply in between. That
+    // unusual shape — sent as full conversation history on every later
+    // call — made llama3.1:8b abandon Ollama's real tool-calling API and
+    // narrate a fake, prose-wrapped tool call as plain text instead. This
+    // guards the actual fix: a failure must still produce a persisted
+    // assistant turn, never an orphaned user turn.
+    delete process.env.ANTHROPIC_API_KEY;
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError("fetch failed"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const conversationId = seedConversation("What's on my calendar today?");
+    const reply = await collect(streamAssistantReply("dad", conversationId));
+
+    expect(reply).toContain("hit an error responding");
+    expect(lastMessageRow(conversationId)).toMatchObject({ role: "assistant", source: "local" });
+  });
+
   it("auto-routes a question needing no family data to the frontier model with no approval prompt", async () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
     mockAnthropicStream.mockReturnValue(fakeAnthropicStream(["A cup of buttermilk substitute: milk + vinegar."]));

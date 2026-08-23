@@ -27,6 +27,15 @@ describe("messageNeedsTools", () => {
   it("returns false for ordinary conversation", () => {
     expect(messageNeedsTools("Can you recommend a good pasta recipe?")).toBe(false);
   });
+
+  it("returns true for a question about bills, even with no data model of its own", () => {
+    // "bills" isn't a real entity (Tasks/Events cover it, e.g. "Pay
+    // electricity bill") but it's real household vocabulary a user actually
+    // asked (2026-08-23) — without this, the Assistant had no tool access
+    // at all for the question and could only describe what it theoretically
+    // could do, never actually check.
+    expect(messageNeedsTools("Give me a list of all my bills for this month.")).toBe(true);
+  });
 });
 
 describe("getUserProfile", () => {
