@@ -597,7 +597,7 @@ function PushNotificationsSection() {
           type="button"
           onClick={handleEnable}
           disabled={busy}
-          className="text-[13px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-70"
+          className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-70"
         >
           {busy ? "Enabling…" : "Enable Notifications"}
         </button>

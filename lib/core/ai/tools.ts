@@ -4,6 +4,14 @@
 // lookups, not just converse." Each tool only returns what the requesting
 // user already has permission to see, same rule as every other module
 // (AI_Permissions.md: "no broader visibility than that user has themselves").
+//
+// Do NOT add a tool that reads lib/core/location or the location_reports
+// table. Location_Tracking.md hard-excludes location data from the frontier
+// escalation path entirely — a stronger guarantee than the sensitive-data
+// approval gate every other tool's data goes through — and that guarantee
+// only holds by this file never exposing it. If a real need for an
+// AI-facing location feature comes up, that's a deliberate policy change to
+// make in Location_Tracking.md first, not a tool to add here by default.
 
 import { getDb } from "@/db/client";
 import { getAuthUser, canManageUser, hasAdminAuthorityOver, hasPermission } from "@/lib/core/permissions";

@@ -44,6 +44,7 @@ async function main() {
   const { runMemoryExtraction } = await import("../lib/core/ai/memory-extraction");
   const { runAdvisorDetectors, expireStaleSuggestions } = await import("../lib/core/ai/advisor");
   const { purgeOldSecurityEvents } = await import("../lib/core/logging");
+  const { purgeOldLocationReports } = await import("../lib/core/location");
   const { runBackup, getLastBackup } = await import("../lib/core/backup");
   const { generateUpcomingEventOccurrences, generateUpcomingTaskOccurrences } = await import("../lib/core/recurrence");
   const { runHostFolderScan } = await import("../lib/core/connectors/hostScan");
@@ -115,6 +116,13 @@ async function main() {
     await purgeOldSecurityEvents();
   } catch (err) {
     console.error("[scheduler-hourly] Security event purge failed:", err);
+  }
+
+  // 7-day rolling retention for location_reports — see Location_Tracking.md.
+  try {
+    purgeOldLocationReports();
+  } catch (err) {
+    console.error("[scheduler-hourly] Location report purge failed:", err);
   }
 
   // Keeps every recurring Event/Task series topped up ~3 months ahead so an

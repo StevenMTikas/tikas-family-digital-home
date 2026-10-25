@@ -56,6 +56,36 @@ export async function getPendingRequests(pairing: Pairing): Promise<PendingReque
   return (await apiRequest(pairing, "/api/connectors/pending-requests")) as PendingRequest[];
 }
 
+// TEMPORARY — see docs/02_Modules/Location_Tracking.md's background-location
+// investigation notes and src/debug-log.ts. Remove once the root cause of
+// the background tasks not firing is confirmed and fixed.
+export async function postDebugLog(pairing: Pairing, eventType: string, detail?: unknown): Promise<void> {
+  await apiRequest(pairing, "/api/connectors/debug-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ eventType, detail }),
+  });
+}
+
+export interface LocationReading {
+  latitude: number;
+  longitude: number;
+  accuracyM?: number;
+  recordedAt: string; // ISO string, device clock
+}
+
+// Deliberately its own endpoint, not folded into postSync — see
+// docs/02_Modules/Location_Tracking.md: different cadence, different
+// retention (7-day purge, not permanent), different sensitivity than
+// file-sync metadata.
+export async function postLocation(pairing: Pairing, reading: LocationReading): Promise<void> {
+  await apiRequest(pairing, "/api/connectors/location", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(reading),
+  });
+}
+
 /**
  * Uploads bytes for one previously-requested file. `uri` is a local file://
  * URI (e.g. from MediaLibrary).

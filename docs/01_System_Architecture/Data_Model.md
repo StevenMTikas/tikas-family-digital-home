@@ -37,6 +37,7 @@ Represents a family member.
 | delete_content | boolean permission, off by default (see Authorization.md) |
 | manage_folder_permissions | boolean permission, off by default (see Authorization.md) |
 | approve_sensitive_outside_transmission | boolean permission, off by default for adults; cannot be granted to any user flagged as a minor, enforced at the system level (see AI_Permissions.md) |
+| location_sharing_enabled | boolean, true by default; toggleable by the user themself if not a minor — a minor's account cannot turn this off, computed from date_of_birth at request time (see Location_Tracking.md) |
 
 ### Device
 Represents a trusted computer or phone running a connector.
@@ -54,6 +55,19 @@ Represents a trusted computer or phone running a connector.
 | added_at | |
 | last_sync_at | connectors sync once/day for MVP; see System_Overview.md |
 | is_host_device | true for exactly one row — the host machine itself, scanned in-process rather than by a real connector (see File_Connector_Architecture.md's "Host Self-Scan") |
+
+### Location_Report
+A single location reading reported by a family member's phone (Location_Tracking.md). Hard-purged 7 days after `received_at` — a rolling window, not a permanent log — and never read by any AI-layer code (Assistant, Advisor, Guardian, memory extraction, frontier escalation).
+
+| Field | Notes |
+|---|---|
+| id | |
+| user_id | the family member this reading belongs to |
+| device_id | the phone that reported it |
+| latitude / longitude | |
+| accuracy_m | device-reported horizontal accuracy, if available |
+| recorded_at | device clock, when the fix was taken |
+| received_at | server clock, when the host received it — retention is keyed off this, not recorded_at, so a phone's clock skew can't extend its own retention |
 
 ### Device_Watched_Path
 The actual filesystem paths a device's connector (or the host's own self-scan) watches — set from the Admin dashboard, per File_Connector_Architecture.md's "Host- and Dashboard-Managed Folders" section. Distinct from `Device.designated_folders`, which only records which folder *types* are enabled, not real paths.
@@ -146,6 +160,60 @@ One row per homework Task — a companion to Task (see `Homeschool.md`), not new
 | signed_off_at | |
 
 *`grade_or_score`, `parent_notes`, and `signed_off_by`/`signed_off_at` are writable by an Admin/Super Admin only, regardless of who assigned the underlying Task — see `Homeschool.md`'s Permissions section for why this is a narrow exception to Tasks.md's normal "assigner or admin can edit" rule.*
+
+### School_Year
+
+(2026-08-23, see `Homeschool.md`'s AI-Generated Curriculum Plan section.) One per child per planning cycle — the shared start/end date and blackout ranges every subject's AI-generated plan for that child is paced against.
+
+| Field | Notes |
+|---|---|
+| id | |
+| child_id | FK to User |
+| start_date | |
+| end_date | fixed end date the whole year's plan is paced to fit within |
+| created_by | |
+
+### School_Year_Blackout
+
+A date range within a School_Year the plan generator skips entirely (e.g. winter break) — see `Homeschool.md`.
+
+| Field | Notes |
+|---|---|
+| id | |
+| school_year_id | FK to School_Year |
+| label | e.g. "Winter Break" |
+| start_date | |
+| end_date | |
+
+### Curriculum_Link
+
+A reference URL for a Subject's course/material this school year (2026-08-23, see `Homeschool.md`). Many per Subject allowed, though one is the normal case.
+
+| Field | Notes |
+|---|---|
+| id | |
+| subject_id | FK to Subject |
+| url | |
+| label | optional, e.g. "Course Site" vs. "Syllabus PDF" |
+| added_by | |
+| added_at | |
+
+### Assignment_Draft
+
+An AI-generated homework assignment awaiting parent review — deliberately **not** a Task row, so nothing it proposes touches the real calendar/Tasks list until approved (2026-08-23, see `Homeschool.md`).
+
+| Field | Notes |
+|---|---|
+| id | |
+| subject_id | FK to Subject |
+| child_id | FK to User — who the assignment would be owned by once approved |
+| generation_batch_id | shared by every draft one Generate Plan run produced; a fresh generation for the same subject discards and replaces the prior batch's still-`pending` rows |
+| title | |
+| curriculum_reference | short blurb the AI derived from the source material |
+| suggested_due_date | always a weekday — the AI never proposes a weekend date, though the real Task it becomes can later be edited to any date, including a weekend (e.g. a missed assignment made up on Saturday) |
+| status | `pending` / `approved` — a rejected draft is deleted outright, not tracked as a third status |
+| approved_task_id | set once approved — the real Task this draft became |
+| created_at | |
 
 ### Document
 
@@ -401,6 +469,7 @@ A browser/device's Web Push registration (Phase 6, see Notifications.md's "Andro
 - **Document** and **Family_Knowledge_Item** → belong to a **Folder**, which defines their permission boundary
 - **AI_Suggestion** → belongs to one **User**; optionally referenced by a **Notification**
 - **Task** → optionally has one **Homework_Detail**, which belongs to one **Subject** (see `Homeschool.md`)
+- **Subject** → has many **Curriculum_Links**; **User** (a child) → has one **School_Year** per planning cycle, which has many **School_Year_Blackouts**; an **Assignment_Draft** belongs to one **Subject** and one child **User**, and becomes a real **Task** (+ **Homework_Detail**) once approved (2026-08-23, see `Homeschool.md`)
 
 ## AI Responsibilities
 

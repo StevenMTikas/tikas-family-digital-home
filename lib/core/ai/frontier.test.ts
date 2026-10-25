@@ -16,7 +16,7 @@ vi.mock("@anthropic-ai/sdk", () => ({
   },
 }));
 
-import { isFrontierConfigured, streamFrontierReply, escalateToFrontier } from "./frontier";
+import { isFrontierConfigured, streamFrontierReply, escalateToFrontier, generateCurriculumPlan } from "./frontier";
 
 async function collect(gen: AsyncGenerator<string>): Promise<string[]> {
   const chunks: string[] = [];
@@ -114,5 +114,147 @@ describe("escalateToFrontier", () => {
     process.env.ANTHROPIC_API_KEY = "test-key";
     mockCreate.mockResolvedValue({ stop_reason: "refusal", content: [] });
     expect(await escalateToFrontier("q", "mem", "local answer")).toBe("The outside model declined to answer this question.");
+  });
+});
+
+describe("generateCurriculumPlan", () => {
+  const baseParams = {
+    subjectName: "Math",
+    materialText: "Chapter 1: Fractions. Chapter 2: Decimals.",
+    startDate: "2026-01-01",
+    endDate: "2026-01-31",
+    blackouts: [] as { startDate: string; endDate: string }[],
+    minPerWeek: 2,
+    maxPerWeek: 4,
+  };
+
+  it("throws when not configured", async () => {
+    delete process.env.ANTHROPIC_API_KEY;
+    await expect(generateCurriculumPlan(baseParams)).rejects.toThrow(/not configured/);
+  });
+
+  it("parses a clean JSON array response", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: '[{"title":"Fractions Worksheet","dueDate":"2026-01-05","curriculumReference":"Chapter 1"}]',
+        },
+      ],
+    });
+    const result = await generateCurriculumPlan(baseParams);
+    expect(result).toEqual([{ title: "Fractions Worksheet", dueDate: "2026-01-05", curriculumReference: "Chapter 1" }]);
+  });
+
+  it("extracts the JSON array even when the model wraps it in a markdown code fence", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: '```json\n[{"title":"Fractions Worksheet","dueDate":"2026-01-05","curriculumReference":"Chapter 1"}]\n```',
+        },
+      ],
+    });
+    const result = await generateCurriculumPlan(baseParams);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.title).toBe("Fractions Worksheet");
+  });
+
+  it("drops a weekend due date rather than failing the whole batch", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify([
+            { title: "Weekday one", dueDate: "2026-01-05", curriculumReference: "" }, // Monday
+            { title: "Weekend one", dueDate: "2026-01-10", curriculumReference: "" }, // Saturday
+          ]),
+        },
+      ],
+    });
+    const result = await generateCurriculumPlan(baseParams);
+    expect(result.map((a) => a.title)).toEqual(["Weekday one"]);
+  });
+
+  it("drops a due date outside the start/end range", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify([
+            { title: "In range", dueDate: "2026-01-05", curriculumReference: "" },
+            { title: "Out of range", dueDate: "2026-02-01", curriculumReference: "" },
+          ]),
+        },
+      ],
+    });
+    const result = await generateCurriculumPlan(baseParams);
+    expect(result.map((a) => a.title)).toEqual(["In range"]);
+  });
+
+  it("drops a due date inside a blackout range", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify([
+            { title: "Before break", dueDate: "2026-01-05", curriculumReference: "" },
+            { title: "During break", dueDate: "2026-01-15", curriculumReference: "" }, // Thursday, but blacked out below
+          ]),
+        },
+      ],
+    });
+    const result = await generateCurriculumPlan({
+      ...baseParams,
+      blackouts: [{ startDate: "2026-01-14", endDate: "2026-01-16" }],
+    });
+    expect(result.map((a) => a.title)).toEqual(["Before break"]);
+  });
+
+  it("drops an item with no title", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: JSON.stringify([{ title: "", dueDate: "2026-01-05", curriculumReference: "" }]) }],
+    });
+    expect(await generateCurriculumPlan(baseParams)).toEqual([]);
+  });
+
+  it("throws on refusal", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({ stop_reason: "refusal", content: [] });
+    await expect(generateCurriculumPlan(baseParams)).rejects.toThrow(/declined/);
+  });
+
+  it("throws when the model's response isn't valid JSON", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: "not json at all" }] });
+    await expect(generateCurriculumPlan(baseParams)).rejects.toThrow(/valid JSON/);
+  });
+
+  it("includes the subject, material, date range, blackouts, and pace in the outbound prompt", async () => {
+    process.env.ANTHROPIC_API_KEY = "test-key";
+    mockCreate.mockResolvedValue({ stop_reason: "end_turn", content: [{ type: "text", text: "[]" }] });
+    await generateCurriculumPlan({
+      ...baseParams,
+      blackouts: [{ startDate: "2026-01-14", endDate: "2026-01-16" }],
+    });
+    const call = mockCreate.mock.calls[0]![0];
+    expect(call.system).toContain("Math");
+    expect(call.system).toContain("Chapter 1: Fractions");
+    expect(call.system).toContain("2026-01-01");
+    expect(call.system).toContain("2026-01-31");
+    expect(call.system).toContain("2026-01-14 to 2026-01-16");
+    expect(call.system).toContain("2 and 4");
   });
 });

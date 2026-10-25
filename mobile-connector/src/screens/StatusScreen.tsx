@@ -2,7 +2,7 @@
 // (a deliberate exception to the desktop connector's "no manual sync" rule —
 // see File_Connector_Architecture.md's Sync Mechanics), and unpair.
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { View, Text, StyleSheet, Button, ActivityIndicator, ScrollView, Alert } from "react-native";
 // Legacy import to match sync.ts — see sync.ts's header comment for why
 // (Expo Go doesn't yet ship the native module the SDK 57 default API needs).
@@ -10,6 +10,7 @@ import * as MediaLibrary from "expo-media-library/legacy";
 import { runSync, pollPendingRequests } from "../sync";
 import { clearThumbnailCache } from "../thumbnail-cache";
 import { savePairing, clearPairing, type Pairing } from "../pairing";
+import { requestLocationPermissions, registerLocationReporting, unregisterLocationReporting, isLocationReportingActive } from "../location";
 
 export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing; onUnpaired: () => void }) {
   // Photo access only — this app never touches video or audio. Requesting
@@ -22,6 +23,29 @@ export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<string | undefined>(pairing.lastSyncAt);
   const [error, setError] = useState<string | null>(null);
+  const [locationSharing, setLocationSharing] = useState<boolean | null>(null); // null = still checking
+
+  useEffect(() => {
+    isLocationReportingActive().then(setLocationSharing);
+  }, []);
+
+  const handleToggleLocationSharing = useCallback(async () => {
+    if (locationSharing) {
+      await unregisterLocationReporting();
+      setLocationSharing(false);
+      return;
+    }
+    const granted = await requestLocationPermissions();
+    if (!granted) {
+      Alert.alert(
+        "Location permission needed",
+        "Tikas Connector needs \"Allow all the time\" location access to share your location with your family in the background."
+      );
+      return;
+    }
+    await registerLocationReporting();
+    setLocationSharing(true);
+  }, [locationSharing]);
 
   const handleSync = useCallback(async () => {
     if (!mediaPermission?.granted) {
@@ -91,6 +115,16 @@ export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing
         </View>
       )}
 
+      <View style={styles.card}>
+        <Text style={styles.label}>Location sharing</Text>
+        <Text style={styles.value}>{locationSharing ? "On — shared with your family" : "Off"}</Text>
+        <View style={styles.spacerSmall} />
+        <Button
+          title={locationSharing ? "Turn Off Location Sharing" : "Enable Location Sharing"}
+          onPress={handleToggleLocationSharing}
+        />
+      </View>
+
       {error && <Text style={styles.error}>{error}</Text>}
 
       {syncing ? (
@@ -118,4 +152,5 @@ const styles = StyleSheet.create({
   error: { color: "#b3261e" },
   syncingRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   spacer: { height: 24 },
+  spacerSmall: { height: 8 },
 });

@@ -38,6 +38,12 @@ const NAV_ITEMS = [
   // covers initial setup, but not the everyday "go check my email summary"
   // path every other module gets via this nav). See docs/02_Modules/Email.md.
   { href: "/email", label: "Email", icon: "✉️" },
+  // Added 2026-08-23 — mutual family-member location sharing, placed right
+  // after Email per Steven's requested layout. See
+  // docs/02_Modules/Location_Tracking.md. This is the 9th nav item —
+  // Navigation.md already flagged 8 as visibly tight on a phone-width
+  // screen; a "More" overflow item is a real future candidate, not solved here.
+  { href: "/location", label: "Location", icon: "📍" },
 ];
 
 export interface NavShellProps {

@@ -7,7 +7,13 @@ const nextConfig = {
   // `.resolve` if it tries. better-sqlite3 doesn't need this listed
   // explicitly since Next already externalizes it by default; sqlite-vec
   // isn't common enough to be on that built-in list.
-  serverExternalPackages: ["sqlite-vec"],
+  //
+  // pdf-parse (lib/core/homework/fetch-material.ts, Homeschool.md's
+  // AI-Generated Curriculum Plan) does its own browser-vs-Node feature
+  // detection at module load — webpack's RSC bundling breaks that with
+  // "TypeError: Object.defineProperty called on non-object" even before the
+  // function is ever called, same shape of bug as sqlite-vec's.
+  serverExternalPackages: ["sqlite-vec", "pdf-parse"],
   webpack: (config) => {
     // Uploaded files and backup archives live under the project root but
     // aren't source code — without this, every upload/backup write (the

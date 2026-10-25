@@ -883,7 +883,7 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
                 type="button"
                 onClick={addGrant}
                 disabled={!newGrantUserId}
-                className="text-[12.5px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-50"
+                className="text-[12.5px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-50"
               >
                 Add
               </button>
@@ -899,7 +899,9 @@ function FolderPermissionsTab({ familyMembers }: { familyMembers: FamilyMemberOp
 
 const EVENT_TYPE_LABELS: Record<string, string> = {
   login: "Login",
+  logout: "Logout",
   login_failed: "Failed Login",
+  login_locked: "Login Locked",
   password_reset: "Password Reset",
   device_added: "Device Added",
   device_revoked: "Device Revoked",
@@ -909,6 +911,13 @@ const EVENT_TYPE_LABELS: Record<string, string> = {
   outside_call_blocked: "Outside Call Blocked",
   ai_interaction: "AI Interaction",
   backup_restored: "Backup Restored",
+  backup_failed: "Backup Failed",
+  password_viewed: "Password Viewed",
+  document_uploaded: "Document Uploaded",
+  document_downloaded: "Document Downloaded",
+  document_deleted: "Document Deleted",
+  family_knowledge_item_deleted: "Family Knowledge Item Deleted",
+  external_content_viewed: "External Viewer Activity",
 };
 
 function summarizeDetail(entry: LogEntry): string {
@@ -916,12 +925,20 @@ function summarizeDetail(entry: LogEntry): string {
   if (!d) return "—";
   if (entry.type === "permission_changed") {
     if (d.scope === "folder") return `Folder "${d.folderName}" permissions updated`;
+    if (d.scope === "document" && d.action === "sensitivity_changed") return `Document sensitivity ${d.isSensitive ? "raised" : "lowered"}`;
     if (d.action === "revoked") return `Revoked ${d.permission} from ${d.targetUserName}`;
     if (d.action === "connection_revoked") return `Revoked connection: ${d.emailAddress}`;
     return "Permission updated";
   }
   if (entry.type === "ai_interaction") return `${d.agent} run`;
   if (entry.type === "backup_restored") return `Restored backup ${d.backupId}`;
+  if (entry.type === "backup_failed") return `Backup failed: ${d.error}`;
+  if (entry.type === "password_viewed") return `Viewed "${d.serviceName}"`;
+  if (entry.type === "document_uploaded" || entry.type === "document_downloaded" || entry.type === "document_deleted") {
+    return `"${d.title}"`;
+  }
+  if (entry.type === "family_knowledge_item_deleted") return `"${d.title}"`;
+  if (entry.type === "external_content_viewed") return `Viewed ${d.surface}`;
   if ("payloadDescription" in d) return String(d.payloadDescription);
   return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(", ") || "—";
 }
@@ -1060,7 +1077,7 @@ function BackupTab() {
           type="button"
           onClick={handleBackupNow}
           disabled={busy}
-          className="mt-4 w-full text-[13px] font-semibold text-white bg-accent-strong px-4 py-2.5 rounded-full disabled:opacity-70"
+          className="mt-4 w-full text-[13px] font-semibold text-white bg-accent-strong px-5 py-2.5 rounded-full disabled:opacity-70"
         >
           {busy ? "Working…" : "Back Up Now"}
         </button>
@@ -1401,7 +1418,7 @@ function ExternalViewersTab({ onViewFolders }: { onViewFolders: () => void }) {
             type="button"
             onClick={handleInvite}
             disabled={saving || !fullName.trim() || !username.trim() || !password}
-            className="text-[13px] font-semibold text-white bg-accent-strong py-2.5 rounded-xl disabled:opacity-60"
+            className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2.5 rounded-xl disabled:opacity-60"
           >
             {saving ? "Inviting…" : "Invite"}
           </button>

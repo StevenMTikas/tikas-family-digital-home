@@ -57,7 +57,9 @@ Uses the existing **Family_Knowledge_Item** entity from `Data_Model.md` for gene
 
 ## Permissions
 
-- **View/Edit/Delete:** governed by folder permissions, same model as `Family_Knowledge_Item` and `Documents.md` — some entries may be visible to everyone (e.g., a shared streaming password), others restricted to specific family members.
+- **View/Edit (Family Knowledge Items and Password Entries):** governed by folder permissions — some entries may be visible to everyone (e.g., a shared streaming password), others restricted to specific family members.
+- **Delete (Family Knowledge Items):** requires the `delete_content` permission (per `Authorization.md`'s "Individually Grantable Permissions" — "Delete Documents/Family Knowledge Items"), same as Documents/Photos/Memory. **Corrected 2026-08-25** — this previously said deletion was folder-scoped like view/edit, which contradicted `Authorization.md` and didn't match how the equivalent Photos/Memory delete actions actually work; the code has been brought in line with `Authorization.md` instead of the reverse.
+- **Delete (Password Entries):** stays folder-scoped (requires folder Delete access) — a deliberate exception, not part of the correction above. Password Entries are reached and managed differently from general Family Knowledge Items throughout this module, and folder-level control over a specific credential's lifecycle (who can remove it) is intentional here.
 - **Password Entries are always treated as sensitive**, regardless of folder visibility — meaning even a "visible to everyone" password entry still requires the sensitive-data outside-transmission gate before it could be sent outside the home, and is never available for that gate on a minor's account.
 
 ## Dependencies

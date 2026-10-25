@@ -112,3 +112,113 @@ export async function escalateToFrontier(question: string, memoryContext: string
   const textBlock = response.content.find((b) => b.type === "text");
   return textBlock && textBlock.type === "text" ? textBlock.text : "";
 }
+
+/**
+ * Mechanism 3 (2026-08-23, see Homeschool.md's "AI-Generated Curriculum
+ * Plan"). Turns a subject's curriculum material into a paced, dated list of
+ * draft assignments spanning a school year. Always frontier — this needs
+ * real reading comprehension over a real document plus a whole-year pacing
+ * plan, well beyond what the local model reliably handles. What's sent is
+ * the material's text plus pacing constraints; no family data, no AI_Memory.
+ * Gated by the same Approve Outside Calls permission as any other outside
+ * call — checked by the caller (app/api/homeschool/curriculum-plan/generate),
+ * not here.
+ */
+export interface BlackoutRange {
+  startDate: string;
+  endDate: string;
+}
+
+export interface GeneratedAssignment {
+  title: string;
+  dueDate: string;
+  curriculumReference: string;
+}
+
+function isValidWeekdayDate(dateIso: string, startDate: string, endDate: string, blackouts: BlackoutRange[]): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) return false;
+  if (dateIso < startDate || dateIso > endDate) return false;
+  const [y, m, d] = dateIso.split("-").map(Number) as [number, number, number];
+  const dayOfWeek = new Date(y, m - 1, d).getDay(); // 0 = Sunday, 6 = Saturday
+  if (dayOfWeek === 0 || dayOfWeek === 6) return false;
+  return !blackouts.some((b) => dateIso >= b.startDate && dateIso <= b.endDate);
+}
+
+// The model is told to respond with ONLY a JSON array, but real models
+// sometimes wrap it in a markdown code fence anyway — pull out the first
+// top-level array rather than trusting the whole response is bare JSON.
+function extractJsonArray(text: string): string {
+  const start = text.indexOf("[");
+  const end = text.lastIndexOf("]");
+  if (start === -1 || end === -1 || end < start) return text;
+  return text.slice(start, end + 1);
+}
+
+export async function generateCurriculumPlan(params: {
+  subjectName: string;
+  materialText: string;
+  startDate: string;
+  endDate: string;
+  blackouts: BlackoutRange[];
+  minPerWeek: number;
+  maxPerWeek: number;
+}): Promise<GeneratedAssignment[]> {
+  const anthropic = getClient();
+  if (!anthropic) throw new Error("Frontier model not configured (ANTHROPIC_API_KEY unset).");
+
+  const blackoutText =
+    params.blackouts.length > 0 ? params.blackouts.map((b) => `- ${b.startDate} to ${b.endDate}`).join("\n") : "None.";
+
+  const systemPrompt = [
+    "You are planning a full school-year schedule of homework assignments for a homeschooled student, based on real curriculum material for one subject.",
+    "Read the material below and produce a paced sequence of assignments spanning the given date range, grounded in what the material actually covers — do not invent content that isn't there.",
+    "",
+    "Hard rules:",
+    `- Every due date must be a weekday (Monday through Friday) between ${params.startDate} and ${params.endDate}, inclusive. Never Saturday or Sunday.`,
+    `- Never place a due date inside any of these blackout ranges — skip them entirely:\n${blackoutText}`,
+    `- Aim for between ${params.minPerWeek} and ${params.maxPerWeek} assignments in any given week.`,
+    "",
+    'Respond with ONLY a JSON array, no other text before or after it, in exactly this shape:',
+    '[{"title": "short assignment title", "dueDate": "YYYY-MM-DD", "curriculumReference": "one short line pointing at what part of the material this covers"}]',
+    "",
+    `Subject: ${params.subjectName}`,
+    "",
+    "Material:",
+    params.materialText,
+  ].join("\n");
+
+  const response = await anthropic.messages.create({
+    model: FRONTIER_MODEL,
+    max_tokens: 8192,
+    system: systemPrompt,
+    messages: [{ role: "user", content: "Generate the year plan now." }],
+  });
+
+  if (response.stop_reason === "refusal") {
+    throw new Error("The outside model declined to generate a plan for this material.");
+  }
+  const textBlock = response.content.find((b) => b.type === "text");
+  const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJsonArray(raw));
+  } catch {
+    throw new Error("The outside model didn't return valid JSON.");
+  }
+  if (!Array.isArray(parsed)) throw new Error("The outside model's response wasn't a JSON array.");
+
+  // Defensive, not trusting: a model that ignores an instruction (a weekend
+  // date, a date outside range/inside a blackout) has that one item quietly
+  // dropped rather than failing the whole batch — same "validate, don't
+  // trust the model" approach used elsewhere in this codebase.
+  return (parsed as unknown[])
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .map((item) => ({
+      title: typeof item.title === "string" ? item.title.trim() : "",
+      dueDate: typeof item.dueDate === "string" ? item.dueDate : "",
+      curriculumReference: typeof item.curriculumReference === "string" ? item.curriculumReference.trim() : "",
+    }))
+    .filter((a) => a.title && isValidWeekdayDate(a.dueDate, params.startDate, params.endDate, params.blackouts))
+    .slice(0, 500);
+}

@@ -28,7 +28,8 @@ Defines the app's overall navigation structure — top-level destinations, the m
   - **Family Board** (`Family_Board.md`) — added 2026-08 alongside the external_viewer feature, after this document's original 5-item list was written; not folded back into the list above until now.
   - **Search** (`Search.md`)
   - **Email** (`Email.md`) — added 2026-08-02. Email was fully built and working but had no way to reach it from the main app at all (not even a menu item) — found in a codebase-wide review, since the My Profile "Add Connection" tab only covers initial account setup, not the everyday "check my email summary" path every other module already gets via this nav.
-- **Mobile-first: bottom tab bar.** The primary pattern for MVP, reflecting the primary destinations above — now 8 items rather than the original 5, the 8th (Homeschool) landing right after the "worth watching" note this document already carried. Still renders, but the bar is visibly tight at 8 across a phone-width screen — a real candidate for a "More" overflow item if a 9th destination is ever added. Desktop uses a sidebar reflecting the same structure — not a different information architecture, just a different presentation of the same nav.
+  - **Location** (`Location_Tracking.md`) — added 2026-08-23, placed right after Email per Steven's requested layout.
+- **Mobile-first: bottom tab bar.** The primary pattern for MVP, reflecting the primary destinations above — now 9 items rather than the original 5. This is the "9th destination" this document already warned about: the bar is now genuinely tight across a phone-width screen, and a "More" overflow item is a real near-term need, not a hypothetical one — not solved as part of adding Location, but worth picking up soon.
 - **Assistant stays outside primary navigation.** The persistent chat bubble (`Assistant.md`) is available from every screen regardless of which nav destination is active — it's not a tab/nav item itself.
 - **Profile icon, upper right.** A circular avatar — the user's photo if set, or their initials by default (per `Users.md`'s profile photo field) — opens a dropdown menu with:
   - My Profile (`Users.md`)
@@ -39,7 +40,7 @@ Defines the app's overall navigation structure — top-level destinations, the m
 
 ## Screen Layout
 
-- **Mobile:** bottom tab bar with icons for Dashboard, Calendar, Tasks, Homeschool, Content, Family Board, Search, Email; profile avatar in the top-right corner of the header; Assistant chat bubble floats above the tab bar, always accessible.
+- **Mobile:** bottom tab bar with icons for Dashboard, Calendar, Tasks, Homeschool, Content, Family Board, Search, Email, Location; profile avatar in the top-right corner of the header; Assistant chat bubble floats above the tab bar, always accessible.
 - **Desktop:** left sidebar with the same set of destinations; profile avatar remains top-right; Assistant chat bubble remains available regardless of sidebar selection.
 - **Content section** itself uses its own sub-navigation (tabs or a menu) to move between Documents, Photos, Memory, and Family Knowledge once inside it.
 
@@ -58,7 +59,7 @@ Defines the app's overall navigation structure — top-level destinations, the m
 
 ## Dependencies
 
-- Builds on `Dashboard.md`, `Calendar.md`, `Tasks.md`, `Homeschool.md`, `Documents.md`, `Photos.md`, `Memory.md`, `Family_Knowledge.md`, `Family_Board.md`, `Search.md`, `Email.md`, `Assistant.md`, `Users.md`, `AI.md`, and `Administration.md` — this document is purely structural, organizing access to all of them.
+- Builds on `Dashboard.md`, `Calendar.md`, `Tasks.md`, `Homeschool.md`, `Documents.md`, `Photos.md`, `Memory.md`, `Family_Knowledge.md`, `Family_Board.md`, `Search.md`, `Email.md`, `Location_Tracking.md`, `Assistant.md`, `Users.md`, `AI.md`, and `Administration.md` — this document is purely structural, organizing access to all of them.
 
 ## Future Enhancements
 

@@ -14,7 +14,7 @@ Defines how Tikas Family Digital Home authenticates users, trusts devices, prote
 
 - Family members log in with a **username and password**.
 - On **trusted home devices**, sessions stay logged in indefinitely — no forced re-authentication.
-- Password resets can only be performed by the **Super Admin (Dad)**, done manually. There is no self-service or email-based recovery flow in the MVP, since the system has no external email service by default.
+- Password resets can only be performed by the **Super Admin (Dad)**, done manually. There is no self-service or email-based recovery flow in the MVP, since the system has no external email service by default. **Note (2026-08-25):** the only actually-built, live password-reset code path today is for External Viewer accounts (`app/api/admin/external-viewers/[id]/route.ts`, logged as `password_reset`) — there is no reset feature at all yet for a regular family member's account, so "done manually" describes intended future behavior for that case, not something a Super Admin can currently do through the app.
 - No separate authentication tier for Malachi — same username/password mechanism as any adult account. His restrictions are permission-based, not authentication-based (see Permissions and Parental Controls below).
 
 ## Device Trust

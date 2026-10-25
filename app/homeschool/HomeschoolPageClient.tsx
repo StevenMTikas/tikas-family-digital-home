@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useEscapeKey } from "@/lib/hooks/useEscapeKey";
 import {
   createTask,
@@ -210,13 +211,23 @@ export default function HomeschoolPageClient({
           <h1 className="font-display text-2xl font-medium">Homeschool</h1>
           <p className="text-[12.5px] text-ink-muted mt-0.5">{formatMonthLabel(anchorDate)}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setFormMode("create")}
-          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
-        >
-          + Add Assignment
-        </button>
+        <div className="flex items-center gap-2.5">
+          {canAssignToOthers && (
+            <Link
+              href="/homeschool/plan"
+              className="h-[34px] px-4 rounded-xl bg-base text-ink text-[13px] font-semibold flex items-center"
+            >
+              Plan Curriculum
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={() => setFormMode("create")}
+            className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
+          >
+            + Add Assignment
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 mt-6 mb-3">
@@ -520,7 +531,7 @@ function AssignmentDetailModal({
               <button
                 type="button"
                 onClick={onEdit}
-                className="text-[13px] font-semibold text-white bg-accent-strong px-4.5 py-2 rounded-full"
+                className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full"
               >
                 Edit
               </button>

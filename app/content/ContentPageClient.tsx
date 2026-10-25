@@ -223,7 +223,7 @@ function DocumentsTab({
         <button
           type="button"
           onClick={() => setShowUpload(true)}
-          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Upload
         </button>
@@ -622,7 +622,7 @@ function PhotosTab({ photos }: { photos: PhotoData[] }) {
         <button
           type="button"
           onClick={() => setShowUpload(true)}
-          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Upload
         </button>
@@ -810,7 +810,7 @@ function MemoryTab({
         <button
           type="button"
           onClick={() => setShowForm(true)}
-          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + New Memory
         </button>
@@ -1048,7 +1048,7 @@ function FamilyKnowledgeTab({ items, passwords: initialPasswords }: { items: Fam
 
       <div className="flex items-center justify-between mb-4">
         <div className="text-[12.5px] text-ink-muted">Categories</div>
-        <button type="button" onClick={() => setShowItemForm(true)} className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold">
+        <button type="button" onClick={() => setShowItemForm(true)} className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold">
           + Add Item
         </button>
       </div>

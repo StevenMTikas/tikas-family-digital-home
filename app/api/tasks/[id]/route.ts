@@ -268,6 +268,13 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     // runtime; see app/api/calendar/[id]/route.ts's event_assignments
     // cleanup for the same pattern already established here.
     db.prepare(`DELETE FROM homework_details WHERE task_id IN (${placeholders})`).run(...targetIds);
+    // An approved Assignment_Draft keeps approved_task_id as a historical
+    // pointer (Homeschool.md) — null it out rather than leaving it dangling
+    // once the task it points to is gone, same reasoning as the
+    // homework_details cleanup above (no live FK enforcement to rely on).
+    db.prepare(`UPDATE assignment_drafts SET approved_task_id = NULL WHERE approved_task_id IN (${placeholders})`).run(
+      ...targetIds
+    );
     db.prepare(`DELETE FROM tasks WHERE id IN (${placeholders})`).run(...targetIds);
 
     if (scope === "future" && row.recurrence_id) {

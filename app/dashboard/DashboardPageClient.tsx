@@ -125,7 +125,7 @@ function PushNudgeBanner() {
           type="button"
           onClick={handleEnable}
           disabled={busy}
-          className="text-[12.5px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-70"
+          className="text-[12.5px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-70"
         >
           {busy ? "Enabling…" : "Enable"}
         </button>
@@ -367,7 +367,7 @@ export default function DashboardPageClient({
                       type="button"
                       onClick={handlePostMessage}
                       disabled={postingMessage || !newMessageText.trim()}
-                      className="text-[13px] font-semibold text-white bg-accent-strong px-4 py-2 rounded-full disabled:opacity-60"
+                      className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full disabled:opacity-60"
                     >
                       Post
                     </button>

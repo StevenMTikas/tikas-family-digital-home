@@ -44,6 +44,10 @@ CREATE TABLE users (
     -- Family Board. A single boolean (not a folder grant) since there's only
     -- one board, not a curatable set — see docs/02_Modules/Family_Board.md.
     view_family_board INTEGER NOT NULL DEFAULT 0,
+    -- Default true (mutual family sharing is the norm) — toggleable by the
+    -- user themself only if not a minor, computed from date_of_birth at
+    -- request time. See Location_Tracking.md.
+    location_sharing_enabled INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -72,6 +76,43 @@ CREATE TABLE devices (
     -- File_Connector_Architecture.md's "Host Self-Scan" section.
     is_host_device INTEGER NOT NULL DEFAULT 0 CHECK (is_host_device IN (0, 1))
 );
+
+-- ── Location Report ──────────────────────────────────────────────────
+-- See Location_Tracking.md. Deliberately a separate table from `content` —
+-- different retention (hard-purged after 7 days, see received_at), different
+-- sensitivity (never read by lib/core/ai/*, hard-excluded from frontier
+-- routing), different reporting cadence than file-sync metadata.
+CREATE TABLE location_reports (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id),
+    device_id TEXT NOT NULL REFERENCES devices(id),
+    latitude REAL NOT NULL,
+    longitude REAL NOT NULL,
+    accuracy_m REAL,
+    recorded_at TEXT NOT NULL,            -- device clock, when the fix was taken
+    -- Purge is keyed off this, not recorded_at — a phone's clock skew must
+    -- never be able to extend its own 7-day retention window.
+    received_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_location_reports_user_time ON location_reports(user_id, recorded_at DESC);
+CREATE INDEX idx_location_reports_received_at ON location_reports(received_at);
+
+-- ── Connector Debug Log (temporary) ──────────────────────────────────
+-- TEMPORARY diagnostic instrumentation for the 2026-08-24 investigation into
+-- why mobile-connector's background location tasks appear not to fire at
+-- all in the background (multiple real-device trips showed zero readings
+-- more than ~40m from home despite real movement) — see
+-- Location_Tracking.md's "Real bug found" notes. Not part of the permanent
+-- Location Tracking data model; drop this table once the root cause is
+-- confirmed and location.ts's logEvent() calls are removed.
+CREATE TABLE connector_debug_logs (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(id),
+    event_type TEXT NOT NULL,
+    detail TEXT,                          -- JSON blob, free-form per event_type
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_connector_debug_logs_created_at ON connector_debug_logs(created_at);
 
 -- ── Device Watched Path ──────────────────────────────────────────────
 -- The actual filesystem paths a connector (or the host's own self-scan)
@@ -209,6 +250,56 @@ CREATE TABLE homework_details (
     parent_notes TEXT,
     signed_off_by TEXT REFERENCES users(id),
     signed_off_at TEXT
+);
+
+-- ── AI-Generated Curriculum Plan (Homeschool.md, 2026-08-23) ───────────
+-- School_Year: one per child per planning cycle — the shared start/end date
+-- and blackout ranges every subject's generated plan for that child is
+-- paced against.
+CREATE TABLE school_years (
+    id TEXT PRIMARY KEY,
+    child_id TEXT NOT NULL REFERENCES users(id),
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL,
+    created_by TEXT NOT NULL REFERENCES users(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE school_year_blackouts (
+    id TEXT PRIMARY KEY,
+    school_year_id TEXT NOT NULL REFERENCES school_years(id) ON DELETE CASCADE,
+    label TEXT NOT NULL,
+    start_date TEXT NOT NULL,
+    end_date TEXT NOT NULL
+);
+
+-- A subject's course/material link(s) for the current school year. Many per
+-- subject allowed, though one is the normal case.
+CREATE TABLE curriculum_links (
+    id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL REFERENCES subjects(id),
+    url TEXT NOT NULL,
+    label TEXT,
+    added_by TEXT NOT NULL REFERENCES users(id),
+    added_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- An AI-generated assignment awaiting parent review — deliberately NOT a
+-- tasks row, so nothing it proposes touches the real calendar/Tasks list
+-- until approved. Approving inserts a real tasks + homework_details row and
+-- sets approved_task_id; rejecting deletes the row outright (no third
+-- "rejected" status kept).
+CREATE TABLE assignment_drafts (
+    id TEXT PRIMARY KEY,
+    subject_id TEXT NOT NULL REFERENCES subjects(id),
+    child_id TEXT NOT NULL REFERENCES users(id),
+    generation_batch_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    curriculum_reference TEXT,
+    suggested_due_date TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved')),
+    approved_task_id TEXT REFERENCES tasks(id),
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ── Document ─────────────────────────────────────────────────────────
@@ -559,8 +650,14 @@ CREATE INDEX idx_ai_suggestions_user_id ON ai_suggestions(user_id);
 CREATE INDEX idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX idx_security_events_user_id ON security_events(user_id);
 CREATE INDEX idx_security_events_created_at ON security_events(created_at);
+CREATE INDEX idx_security_events_type ON security_events(type);
 CREATE INDEX idx_documents_source_device_id ON documents(source_device_id);
 CREATE INDEX idx_photos_source_device_id ON photos(source_device_id);
 CREATE INDEX idx_push_subscriptions_user_id ON push_subscriptions(user_id);
 CREATE INDEX idx_photos_folder_id ON photos(folder_id);
 CREATE INDEX idx_family_board_posts_posted_by ON family_board_posts(posted_by);
+CREATE INDEX idx_school_years_child_id ON school_years(child_id);
+CREATE INDEX idx_school_year_blackouts_school_year_id ON school_year_blackouts(school_year_id);
+CREATE INDEX idx_curriculum_links_subject_id ON curriculum_links(subject_id);
+CREATE INDEX idx_assignment_drafts_subject_id ON assignment_drafts(subject_id);
+CREATE INDEX idx_assignment_drafts_child_id ON assignment_drafts(child_id);

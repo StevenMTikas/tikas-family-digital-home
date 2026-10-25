@@ -543,7 +543,7 @@ export default function AssistantBubble() {
                           type="button"
                           onClick={handleConfirmEscalation}
                           disabled={escalationBusy}
-                          className="px-3 py-1.5 rounded-lg bg-accent-strong text-white text-xs disabled:opacity-60"
+                          className="px-3.5 py-1.5 rounded-lg bg-accent-strong text-white text-xs disabled:opacity-60"
                         >
                           {escalationBusy ? "Asking…" : "Send it"}
                         </button>
@@ -551,7 +551,7 @@ export default function AssistantBubble() {
                           type="button"
                           onClick={cancelEscalation}
                           disabled={escalationBusy}
-                          className="px-3 py-1.5 rounded-lg text-ink-muted text-xs disabled:opacity-60"
+                          className="px-3.5 py-1.5 rounded-lg text-ink-muted text-xs disabled:opacity-60"
                         >
                           Never mind
                         </button>

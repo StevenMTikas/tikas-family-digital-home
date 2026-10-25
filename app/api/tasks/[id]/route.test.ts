@@ -23,7 +23,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
-  getDb().exec(`DELETE FROM homework_details; DELETE FROM tasks; DELETE FROM subjects;`);
+  getDb().exec(`DELETE FROM assignment_drafts; DELETE FROM homework_details; DELETE FROM tasks; DELETE FROM subjects;`);
 });
 
 function patchReq(userId: string | null, body: unknown) {
@@ -178,5 +178,29 @@ describe("DELETE /api/tasks/[id] — homework cleanup", () => {
     expect(res.status).toBe(204);
     expect(getDb().prepare(`SELECT * FROM homework_details WHERE task_id = ?`).get(id)).toBeUndefined();
     expect(getDb().prepare(`SELECT * FROM tasks WHERE id = ?`).get(id)).toBeUndefined();
+  });
+
+  // Homeschool.md's AI-Generated Curriculum Plan: an approved Assignment_Draft
+  // keeps approved_task_id as a historical pointer to the Task it became —
+  // deleting that Task must not leave the draft row pointing at nothing.
+  it("nulls out an approved Assignment_Draft's approved_task_id rather than leaving it dangling", async () => {
+    const id = makeMalachiHomework();
+    const db = getDb();
+    const subjectId = (db.prepare(`SELECT subject_id FROM homework_details WHERE task_id = ?`).get(id) as {
+      subject_id: string;
+    }).subject_id;
+    const draftId = randomUUID();
+    db.prepare(
+      `INSERT INTO assignment_drafts (id, subject_id, child_id, generation_batch_id, title, suggested_due_date, status, approved_task_id)
+       VALUES (?, ?, 'malachi', 'batch1', 'Reading Log', '2026-01-05', 'approved', ?)`
+    ).run(draftId, subjectId, id);
+
+    const res = await DELETE(deleteReq("malachi"), { params: Promise.resolve({ id }) });
+    expect(res.status).toBe(204);
+
+    const draft = db.prepare(`SELECT approved_task_id FROM assignment_drafts WHERE id = ?`).get(draftId) as {
+      approved_task_id: string | null;
+    };
+    expect(draft.approved_task_id).toBeNull();
   });
 });

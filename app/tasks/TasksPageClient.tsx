@@ -201,7 +201,7 @@ export default function TasksPageClient({
         <button
           type="button"
           onClick={() => setFormMode("create")}
-          className="h-[34px] px-4.5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
+          className="h-[34px] px-5 rounded-xl bg-accent-strong text-white text-[13px] font-semibold"
         >
           + Add Task
         </button>
@@ -370,7 +370,7 @@ function TaskDetailModal({
               <button
                 type="button"
                 onClick={onEdit}
-                className="text-[13px] font-semibold text-white bg-accent-strong px-4.5 py-2 rounded-full"
+                className="text-[13px] font-semibold text-white bg-accent-strong px-5 py-2 rounded-full"
               >
                 Edit
               </button>

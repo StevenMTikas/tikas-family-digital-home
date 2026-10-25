@@ -54,7 +54,7 @@ export default async function ContentPage() {
       isSensitive: !!row.is_sensitive,
       uploadedBy: row.uploaded_by,
       uploadedAt: row.uploaded_at,
-      canDelete: await canAccessFolder(ctx, row.folder_id, "delete"),
+      canDelete: hasPermission(actor, "deleteContent"),
       syncStatus: row.sync_status,
       fileRequestedAt: row.file_requested_at,
       removedFromSourceAt: row.removed_from_source_at,
@@ -158,7 +158,7 @@ export default async function ContentPage() {
       createdBy: row.created_by,
       updatedAt: row.updated_at,
       canEdit: await canAccessFolder(ctx, row.folder_id, "edit"),
-      canDelete: await canAccessFolder(ctx, row.folder_id, "delete"),
+      canDelete: hasPermission(actor, "deleteContent"),
     });
   }
 
