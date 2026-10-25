@@ -32,17 +32,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const body = await req.json().catch(() => null);
   const updates: Record<string, unknown> = {};
   const logDetail: Record<string, unknown> = { scope: "external_viewer", action: "updated", externalViewerId: id };
+  let nonPasswordFieldChanged = false;
+  let passwordWasReset = false;
 
   if (typeof body?.boardAccess === "boolean") {
     updates.view_family_board = body.boardAccess ? 1 : 0;
     logDetail.boardAccess = body.boardAccess;
+    nonPasswordFieldChanged = true;
   }
   if (typeof body?.fullName === "string" && body.fullName.trim()) {
     updates.full_name = body.fullName.trim();
+    nonPasswordFieldChanged = true;
   }
   if (typeof body?.newPassword === "string" && body.newPassword) {
     updates.password_hash = bcrypt.hashSync(body.newPassword, 10);
-    logDetail.passwordReset = true;
+    passwordWasReset = true;
   }
 
   if (Object.keys(updates).length === 0) {
@@ -51,7 +55,20 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const setClause = Object.keys(updates).map((f) => `${f} = @${f}`).join(", ");
   db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...updates, id });
-  await logSecurityEvent({ type: "permission_changed", userId: actor.id, detail: logDetail });
+  // Board access / name changes and a password reset are logged as separate
+  // events (a single PATCH can do both) — password_reset is its own
+  // LogEventType, distinct from permission_changed. Preserves the prior
+  // behavior of always logging non-password changes, even a bare name edit.
+  if (nonPasswordFieldChanged) {
+    await logSecurityEvent({ type: "permission_changed", userId: actor.id, detail: logDetail });
+  }
+  if (passwordWasReset) {
+    await logSecurityEvent({
+      type: "password_reset",
+      userId: actor.id,
+      detail: { scope: "external_viewer", targetUserId: id },
+    });
+  }
 
   const updated = db
     .prepare(`SELECT id, username, full_name, view_family_board, created_at FROM users WHERE id = ?`)

@@ -1,12 +1,15 @@
 // Family Knowledge API (general items). See docs/02_Modules/Family_Knowledge.md:
-// "View/Edit/Delete: governed by folder permissions" — unlike Documents,
-// anyone with folder Edit access can edit any item in it, not just its creator.
-// Password Entries are a separate resource — see ./passwords.
+// View/Edit are governed by folder permissions — unlike Documents, anyone
+// with folder Edit access can edit any item in it, not just its creator.
+// Delete requires the delete_content permission (per Authorization.md), same
+// as Documents/Photos/Memory — not folder-scoped. Password Entries are a
+// separate resource with their own, deliberately folder-scoped delete rule
+// — see ./passwords.
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
-import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { getAuthUser, canAccessFolder, hasPermission } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
 import { indexContent } from "@/lib/core/search";
 
@@ -46,6 +49,7 @@ export async function GET(req: NextRequest) {
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
   const rows = getDb().prepare(`SELECT * FROM family_knowledge_items ORDER BY updated_at DESC`).all() as ItemRow[];
+  const canDelete = hasPermission(actor, "deleteContent");
 
   const result = [];
   for (const row of rows) {
@@ -53,7 +57,6 @@ export async function GET(req: NextRequest) {
     const ctx = { userId: actor.id };
     if (!(await canAccessFolder(ctx, row.folder_id, "view"))) continue;
     const canEdit = await canAccessFolder(ctx, row.folder_id, "edit");
-    const canDelete = await canAccessFolder(ctx, row.folder_id, "delete");
     result.push(toItemResponse(row, canEdit, canDelete));
   }
 
@@ -91,5 +94,5 @@ export async function POST(req: NextRequest) {
   indexContent("family_knowledge", id, `${row.title} ${row.category ?? ""} ${row.content ?? ""}`).catch((err) =>
     console.error("[search] Failed to index family knowledge item:", err)
   );
-  return NextResponse.json(toItemResponse(row, true, true), { status: 201 });
+  return NextResponse.json(toItemResponse(row, true, hasPermission(actor, "deleteContent")), { status: 201 });
 }

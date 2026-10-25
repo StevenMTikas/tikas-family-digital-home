@@ -30,9 +30,9 @@ export async function GET(req: NextRequest) {
 
 /** Manual "back up now" — the scheduled daily run (scripts/scheduler-hourly.ts) covers the automatic case. */
 export async function POST(req: NextRequest) {
-  const { error } = await requireSuperAdmin(req);
+  const { error, actor } = await requireSuperAdmin(req);
   if (error) return error;
 
-  const meta = await runBackup();
+  const meta = await runBackup(actor!.id);
   return NextResponse.json(meta, { status: meta.status === "success" ? 201 : 500 });
 }

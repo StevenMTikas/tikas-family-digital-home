@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { readUploadedFile } from "@/lib/storage/files";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -39,6 +40,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (row.sync_status === "metadata_only") {
     return errorResponse("NOT_FETCHED", "This file hasn't been pulled from the source device yet.", 409);
   }
+
+  await logSecurityEvent({ type: "document_downloaded", userId: actor.id, detail: { documentId: id, title: row.title } });
 
   const buffer = await readUploadedFile(row.file);
   return new NextResponse(new Uint8Array(buffer), {

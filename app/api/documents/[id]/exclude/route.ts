@@ -1,15 +1,17 @@
 // "Don't sync this again" for a connector-synced document — deletes it like
-// the normal DELETE route, but also remembers the source path so
-// applySyncBatch won't silently re-report it next time the source device
-// syncs (it still has the file; deleting the row alone doesn't stop that).
+// the normal DELETE route (same delete_content permission gate), but also
+// remembers the source path so applySyncBatch won't silently re-report it
+// next time the source device syncs (it still has the file; deleting the row
+// alone doesn't stop that).
 // See lib/core/connectors's excludeSourcePath and File_Connector_Architecture.md.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
-import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { getAuthUser, hasPermission } from "@/lib/core/permissions";
 import { deleteUploadedFile } from "@/lib/storage/files";
 import { removeFromIndex } from "@/lib/core/search";
 import { excludeSourcePath } from "@/lib/core/connectors";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -35,8 +37,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .get(id) as DocumentRow | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such document.", 404);
 
-  if (!row.folder_id || !(await canAccessFolder({ userId: actorId! }, row.folder_id, "delete"))) {
-    return errorResponse("FORBIDDEN", "You don't have Delete access to this document's folder.", 403);
+  if (!hasPermission(actor, "deleteContent")) {
+    return errorResponse("FORBIDDEN", "You don't have permission to delete content.", 403);
   }
   if (!row.source_device_id || !row.source_path) {
     return errorResponse("INVALID_STATE", "This document wasn't synced from a connector — there's nothing to exclude.", 400);
@@ -46,6 +48,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   db.prepare(`DELETE FROM documents WHERE id = ?`).run(id);
   await deleteUploadedFile(row.file);
   removeFromIndex("document", id);
+  await logSecurityEvent({
+    type: "document_deleted",
+    userId: actor.id,
+    detail: { documentId: id, excluded: true },
+  });
 
   return new NextResponse(null, { status: 204 });
 }

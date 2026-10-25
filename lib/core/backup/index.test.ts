@@ -94,4 +94,34 @@ describe("backup/restore", () => {
       .filter((name) => name.startsWith("pre-restore-"));
     expect(preRestoreDirs.length).toBeGreaterThan(0);
   });
+
+  it("resolves with status \"failed\" and records a backup_failed security event when the backup directory can't be created", async () => {
+    const { getDb } = await import("@/db/client");
+    const { runBackup } = await import("./index");
+
+    // A plain file sitting where BACKUP_DIR should be a directory forces
+    // mkdir(dir, { recursive: true }) to fail for any sub-path under it —
+    // exercises both the mkdir-outside-the-try bug and the inner empty-catch
+    // bug fixed together (the failure meta.json write below also fails,
+    // since its parent directory doesn't exist either).
+    const originalBackupDir = process.env.BACKUP_DIR;
+    const blockingFilePath = path.join(tmpRoot, "backup-dir-blocked-by-a-file");
+    await writeFile(blockingFilePath, "not a directory");
+    process.env.BACKUP_DIR = blockingFilePath;
+
+    try {
+      const meta = await runBackup("dad");
+      expect(meta.status).toBe("failed");
+      expect(meta.error).toBeTruthy();
+
+      const events = getDb()
+        .prepare(`SELECT user_id, detail FROM security_events WHERE type = 'backup_failed' ORDER BY created_at DESC LIMIT 1`)
+        .all() as { user_id: string; detail: string }[];
+      expect(events.length).toBe(1);
+      expect(events[0]!.user_id).toBe("dad");
+      expect(JSON.parse(events[0]!.detail).backupId).toBe(meta.id);
+    } finally {
+      process.env.BACKUP_DIR = originalBackupDir;
+    }
+  });
 });

@@ -1,11 +1,13 @@
-// Single Family Knowledge item API. Edit/Delete governed by folder
-// permissions (not creator-based, per Family_Knowledge.md); sensitivity
-// override stays Super-Admin-only, consistent with Documents/Photos/Memory.
+// Single Family Knowledge item API. Edit governed by folder permissions (not
+// creator-based, per Family_Knowledge.md); Delete requires the delete_content
+// permission (per Authorization.md, same as Documents/Photos/Memory) rather
+// than folder-scoped access; sensitivity override stays Super-Admin-only.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
-import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { getAuthUser, canAccessFolder, hasPermission } from "@/lib/core/permissions";
 import { indexContent, removeFromIndex } from "@/lib/core/search";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -88,16 +90,21 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   if (!actor) return errorResponse("UNAUTHENTICATED", "Login required.", 401);
 
   const db = getDb();
-  const row = db.prepare(`SELECT folder_id FROM family_knowledge_items WHERE id = ?`).get(id) as
-    | { folder_id: string | null }
+  const row = db.prepare(`SELECT folder_id, title FROM family_knowledge_items WHERE id = ?`).get(id) as
+    | { folder_id: string | null; title: string }
     | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such item.", 404);
 
-  if (!row.folder_id || !(await canAccessFolder({ userId: actor.id }, row.folder_id, "delete"))) {
-    return errorResponse("FORBIDDEN", "You don't have Delete access to this item's folder.", 403);
+  if (!hasPermission(actor, "deleteContent")) {
+    return errorResponse("FORBIDDEN", "You don't have permission to delete content.", 403);
   }
 
   db.prepare(`DELETE FROM family_knowledge_items WHERE id = ?`).run(id);
   removeFromIndex("family_knowledge", id);
+  await logSecurityEvent({
+    type: "family_knowledge_item_deleted",
+    userId: actor.id,
+    detail: { itemId: id, title: row.title },
+  });
   return new NextResponse(null, { status: 204 });
 }

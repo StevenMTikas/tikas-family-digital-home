@@ -1,14 +1,16 @@
 // Single-document API. See docs/02_Modules/Documents.md: category can be
 // changed by anyone who can see the document; sensitivity by the Super Admin
-// (any document) or the uploader (their own document); delete requires
-// folder Delete access.
+// (any document) or the uploader (their own document); delete requires the
+// delete_content permission (same as Photos/Memory/Family Knowledge Items),
+// not folder-scoped Delete access.
 
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "@/db/client";
-import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { getAuthUser, hasPermission } from "@/lib/core/permissions";
 import { deleteUploadedFile } from "@/lib/storage/files";
 import { removeFromIndex } from "@/lib/core/search";
 import { ensureCategoryExists } from "@/lib/core/documents/categories";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -54,6 +56,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return errorResponse("FORBIDDEN", "Only the Super Admin, or the person who uploaded this document, can change its sensitivity.", 403);
     }
     db.prepare(`UPDATE documents SET is_sensitive = ? WHERE id = ?`).run(body.isSensitive ? 1 : 0, id);
+    await logSecurityEvent({
+      type: "permission_changed",
+      userId: actor.id,
+      detail: { scope: "document", action: "sensitivity_changed", documentId: id, isSensitive: body.isSensitive },
+    });
   }
 
   let category: string | null = row.category;
@@ -87,13 +94,14 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
   const row = db.prepare(`SELECT * FROM documents WHERE id = ?`).get(id) as DocumentRow | undefined;
   if (!row) return errorResponse("NOT_FOUND", "No such document.", 404);
 
-  if (!row.folder_id || !(await canAccessFolder({ userId: actorId! }, row.folder_id, "delete"))) {
-    return errorResponse("FORBIDDEN", "You don't have Delete access to this document's folder.", 403);
+  if (!hasPermission(actor, "deleteContent")) {
+    return errorResponse("FORBIDDEN", "You don't have permission to delete content.", 403);
   }
 
   db.prepare(`DELETE FROM documents WHERE id = ?`).run(id);
   await deleteUploadedFile(row.file);
   removeFromIndex("document", id);
+  await logSecurityEvent({ type: "document_deleted", userId: actor.id, detail: { documentId: id, title: row.title } });
 
   return new NextResponse(null, { status: 204 });
 }

@@ -10,6 +10,7 @@ import { getAuthUser } from "@/lib/core/permissions";
 import { getDb } from "@/db/client";
 import { isPhotoVisibleTo, type PhotoVisibilityRow } from "@/lib/photos/visibility";
 import { photoFileUrl } from "@/lib/api/photos";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 interface PhotoRow extends PhotoVisibilityRow {
   id: string;
@@ -29,6 +30,12 @@ export default async function ExternalViewerPhotosPage() {
   for (const row of rows) {
     if (await isPhotoVisibleTo(actor, row)) visible.push(row);
   }
+
+  await logSecurityEvent({
+    type: "external_content_viewed",
+    userId: actor.id,
+    detail: { surface: "photos", visibleCount: visible.length },
+  });
 
   return (
     <div className="max-w-3xl mx-auto">

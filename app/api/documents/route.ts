@@ -6,11 +6,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
-import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
+import { getAuthUser, canAccessFolder, hasPermission } from "@/lib/core/permissions";
 import { getDefaultFolderId } from "@/lib/folders/default-folder";
 import { saveUploadedFile } from "@/lib/storage/files";
 import { indexContent } from "@/lib/core/search";
 import { ensureCategoryExists } from "@/lib/core/documents/categories";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -64,14 +65,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const withPermissions = await Promise.all(
-    visible.map(async (row) => {
-      const canDelete = row.folder_id
-        ? await canAccessFolder({ userId: actor.id }, row.folder_id, "delete")
-        : false;
-      return toDocResponse(row, canDelete);
-    })
-  );
+  const canDelete = hasPermission(actor, "deleteContent");
+  const withPermissions = visible.map((row) => toDocResponse(row, canDelete));
 
   return NextResponse.json(withPermissions);
 }
@@ -113,5 +108,10 @@ export async function POST(req: NextRequest) {
   const row = db.prepare(`SELECT * FROM documents WHERE id = ?`).get(id) as DocumentRow;
   // Search.md: title/category are the fields Documents indexes for cross-content search.
   indexContent("document", id, `${row.title} ${row.category ?? ""}`).catch((err) => console.error("[search] Failed to index document:", err));
-  return NextResponse.json(toDocResponse(row, true), { status: 201 });
+  await logSecurityEvent({
+    type: "document_uploaded",
+    userId: actor.id,
+    detail: { documentId: id, title: row.title, folderId },
+  });
+  return NextResponse.json(toDocResponse(row, hasPermission(actor, "deleteContent")), { status: 201 });
 }

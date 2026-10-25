@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { getAuthUser } from "@/lib/core/permissions";
 import { getDb } from "@/db/client";
 import { canReadBoard } from "@/app/api/family-board/access";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 interface PostRow {
   id: string;
@@ -46,6 +47,12 @@ export default async function ExternalViewerBoardPage() {
        ORDER BY p.created_at DESC`
     )
     .all() as PostRow[];
+
+  await logSecurityEvent({
+    type: "external_content_viewed",
+    userId: actor.id,
+    detail: { surface: "board", postCount: posts.length },
+  });
 
   return (
     <div className="max-w-2xl mx-auto">

@@ -17,12 +17,13 @@ Defines the Logs screen — where the security events already required by `Secur
 ## Features
 
 - **Full security event log**, covering everything already required by `Security_Architecture.md`:
-  - Logins (and failed attempts)
+  - Logins, logouts, and failed/locked attempts
   - Password resets
   - Device additions and revocations
-  - Permission grants and changes (including "Approve Outside Calls" and the sensitive-data gate)
+  - Permission grants and changes (including "Approve Outside Calls," the sensitive-data gate, and a Document's sensitivity override)
   - Outside-call approvals and denials — who approved it, what was sent, and when
   - Blocked outside-call attempts, including the passive Super Admin notification this triggers (per `Security_Architecture.md`, `Data_Flow.md`)
+  - **Data-access events (added 2026-08-25):** Password Entry reveals, Document uploads/downloads/deletions, Family Knowledge Item deletions, backup failures, and what an External Viewer accessed (one entry per Photos/Family Board page visit, not per item) — closing a gap where admin actions were well-audited but sensitive reads and deletions were not.
 - **30-day retention window for MVP.** Log entries older than 30 days are purged automatically. This is an explicit MVP limitation — a commercial version would need a longer or indefinite retention model (see Future Enhancements), but for now, security history beyond 30 days isn't available.
 - **Filterable by event type and user.** Given the range of event types logged, the screen should let the Super Admin filter (e.g., "show me only permission changes," "show me only Malachi's activity") rather than scrolling one long undifferentiated list.
 

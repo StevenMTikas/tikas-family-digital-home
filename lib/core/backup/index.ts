@@ -21,6 +21,7 @@ import { mkdir, readdir, rm, cp, readFile, writeFile, stat, rename } from "fs/pr
 import path from "path";
 import { getDb, getDbPath, closeDb } from "@/db/client";
 import { encryptBuffer, decryptBuffer } from "@/lib/crypto/secret-box";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 // Read lazily, not as module-level consts — matching db/client.ts's getDb():
 // ESM import hoisting can evaluate this module before a test file's own
@@ -67,13 +68,19 @@ async function pruneOldBackups(): Promise<void> {
   }
 }
 
-/** Runs one full backup pass. Failures are recorded in the backup's own meta.json rather than thrown, so a scheduled run can log and move on. */
-export async function runBackup(): Promise<BackupMeta> {
+/**
+ * Runs one full backup pass. Failures are recorded in the backup's own
+ * meta.json (and a backup_failed security event) rather than thrown, so a
+ * scheduled run can log and move on. `triggeredBy` is the Super Admin's user
+ * id for a manual run, or "" for the scheduled/system-triggered run — same
+ * convention as logAiInteraction's system-triggered calls.
+ */
+export async function runBackup(triggeredBy: string = ""): Promise<BackupMeta> {
   const id = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = backupDir(id);
-  await mkdir(dir, { recursive: true });
 
   try {
+    await mkdir(dir, { recursive: true });
     const tmpDbPath = path.join(dir, "db.sqlite.tmp");
     await getDb().backup(tmpDbPath); // SQLite's online backup API — safe against concurrent writers
     const rawDb = await readFile(tmpDbPath);
@@ -101,7 +108,15 @@ export async function runBackup(): Promise<BackupMeta> {
       sizeBytes: 0,
       error: err instanceof Error ? err.message : String(err),
     };
-    await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2)).catch(() => {});
+    console.error("[backup] runBackup failed:", err);
+    await logSecurityEvent({
+      type: "backup_failed",
+      userId: triggeredBy,
+      detail: { backupId: id, error: meta.error },
+    }).catch((logErr) => console.error("[backup] failed to record backup_failed security event:", logErr));
+    await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta, null, 2)).catch((writeErr) =>
+      console.error("[backup] failed to write failure meta.json:", writeErr)
+    );
     return meta;
   }
 }

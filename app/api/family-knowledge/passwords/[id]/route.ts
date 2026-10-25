@@ -7,6 +7,7 @@ import { getDb } from "@/db/client";
 import { getAuthUser, canAccessFolder } from "@/lib/core/permissions";
 import { encryptSecret, decryptSecret } from "@/lib/crypto/secret-box";
 import { indexContent, removeFromIndex } from "@/lib/core/search";
+import { logSecurityEvent } from "@/lib/core/logging";
 
 function errorResponse(code: string, message: string, status: number) {
   return NextResponse.json({ error: { code, message } }, { status });
@@ -36,6 +37,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   if (!row.folder_id || !(await canAccessFolder({ userId: actor.id }, row.folder_id, "view"))) {
     return errorResponse("FORBIDDEN", "You don't have View access to this entry's folder.", 403);
   }
+
+  await logSecurityEvent({
+    type: "password_viewed",
+    userId: actor.id,
+    detail: { entryId: row.id, serviceName: row.service_name, folderId: row.folder_id },
+  });
 
   return NextResponse.json({
     id: row.id,

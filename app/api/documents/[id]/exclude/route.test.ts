@@ -18,6 +18,9 @@ beforeAll(() => {
     `INSERT INTO users (id, username, password_hash, full_name, role) VALUES ('malachi', 'malachi.test', 'x', 'Malachi', 'basic_user')`
   ).run();
   db.prepare(
+    `INSERT INTO users (id, username, password_hash, full_name, role, delete_content) VALUES ('vee', 'vee.test', 'x', 'Vee', 'basic_user', 1)`
+  ).run();
+  db.prepare(
     `INSERT INTO folders (id, name, owner_id, is_shared_family_folder, permissions) VALUES ('viewable-only', 'Viewable', 'dad', 0, ?)`
   ).run(JSON.stringify({ roles: { basic_user: "view" } }));
   db.prepare(
@@ -71,10 +74,26 @@ describe("POST /api/documents/[id]/exclude", () => {
     expect(res.status).toBe(404);
   });
 
-  it("forbids a user with only View (not Delete) access to the folder", async () => {
+  it("forbids a user with only View access to the folder", async () => {
     const id = insertDocument({ folder_id: "viewable-only" });
     const res = await POST(excludeReq("malachi"), idParams(id));
     expect(res.status).toBe(403);
+  });
+
+  it("forbids a user with folder Delete access but no deleteContent permission (regression: this used to wrongly succeed)", async () => {
+    // 'deletable' grants basic_user role-level "delete" at the folder level —
+    // exactly the shape that let the old canAccessFolder-based check wrongly
+    // succeed regardless of the deleteContent permission bit.
+    const id = insertDocument({ folder_id: "deletable", source_path: "/home/dad/Documents/still-there.pdf" });
+    const res = await POST(excludeReq("malachi"), idParams(id));
+    expect(res.status).toBe(403);
+    expect(getDb().prepare(`SELECT * FROM documents WHERE id = ?`).get(id)).toBeTruthy();
+  });
+
+  it("allows a user with deleteContent but no folder grant at all", async () => {
+    const id = insertDocument({ folder_id: "viewable-only", source_path: "/home/dad/Documents/vee-can-exclude.pdf" });
+    const res = await POST(excludeReq("vee"), idParams(id));
+    expect(res.status).toBe(204);
   });
 
   it("rejects excluding a document with no source_device_id/source_path (never synced from a connector)", async () => {

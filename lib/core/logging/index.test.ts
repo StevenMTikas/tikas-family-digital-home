@@ -4,7 +4,7 @@ import fs from "fs";
 import path from "path";
 import { beforeAll, describe, it, expect } from "vitest";
 import { getDb } from "@/db/client";
-import { purgeOldSecurityEvents } from "./index";
+import { purgeOldSecurityEvents, LOG_EVENT_TYPES } from "./index";
 
 const NOW = new Date("2026-07-25T12:00:00Z");
 function daysAgo(days: number): string {
@@ -50,5 +50,31 @@ describe("purgeOldSecurityEvents", () => {
     expect(remainingIds).not.toContain("old-1");
     expect(remainingIds).toContain("boundary");
     expect(remainingIds).toContain("recent-1");
+  });
+});
+
+describe("admin Logs screen stays in sync with LogEventType", () => {
+  // Guards against the exact bug found 2026-08-25: logout/login_locked were
+  // real, emitted event types but missing from AdministrationPageClient.tsx's
+  // hand-maintained EVENT_TYPE_LABELS map, so they rendered as a raw string
+  // and couldn't be selected in the type filter at all. That map is a plain
+  // Record<string, string> (not Record<LogEventType, string>), so TypeScript
+  // itself won't catch a missing key — this reads the component's source
+  // text directly rather than importing it, since the component is a "use
+  // client" React file this Node-environment test suite isn't set up to render.
+  it("has an EVENT_TYPE_LABELS entry for every LogEventType", () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, "../../../app/administration/AdministrationPageClient.tsx"),
+      "utf8"
+    );
+    const match = source.match(/const EVENT_TYPE_LABELS: Record<string, string> = \{([\s\S]*?)\n\};/);
+    expect(match, "EVENT_TYPE_LABELS block not found — did it move or get renamed?").toBeTruthy();
+    const labelsBlock = match![1];
+
+    for (const type of LOG_EVENT_TYPES) {
+      expect(labelsBlock, `EVENT_TYPE_LABELS is missing an entry for "${type}"`).toMatch(
+        new RegExp(`(^|\\s)${type}:`)
+      );
+    }
   });
 });
