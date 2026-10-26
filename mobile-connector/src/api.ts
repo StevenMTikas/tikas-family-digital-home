@@ -56,15 +56,6 @@ export async function getPendingRequests(pairing: Pairing): Promise<PendingReque
   return (await apiRequest(pairing, "/api/connectors/pending-requests")) as PendingRequest[];
 }
 
-// TEMPORARY — see src/debug-log.ts for why it stays and exactly when to remove it.
-export async function postDebugLog(pairing: Pairing, eventType: string, detail?: unknown): Promise<void> {
-  await apiRequest(pairing, "/api/connectors/debug-log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ eventType, detail }),
-  });
-}
-
 /** How a reading was produced — the host labels low-confidence ones (heartbeat) in the UI. */
 export type ReportSource = "push_refresh" | "foreground" | "heartbeat";
 

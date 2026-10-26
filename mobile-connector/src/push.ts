@@ -18,7 +18,6 @@ import { Platform } from "react-native";
 import { loadPairing } from "./pairing";
 import { postPushToken } from "./api";
 import { captureAndReportFix, isLocationSharingOn } from "./location";
-import { logEvent } from "./debug-log"; // TEMPORARY — see debug-log.ts
 
 const PUSH_TASK_NAME = "tikas-connector-push-wake";
 const CHANNEL_ID = "location-requests";
@@ -61,31 +60,12 @@ function extractPayload(body: any): Record<string, unknown> {
 
 TaskManager.defineTask(PUSH_TASK_NAME, async (body: any) => {
   const payload = extractPayload(body);
-  // TEMPORARY diagnostics: the only way to see, from the host, whether a push
-  // actually woke the phone and how long it took. sentAt is the host's clock.
-  logEvent("push_task_fired", {
-    receivedAt: new Date().toISOString(),
-    sentAt: payload.sentAt,
-    nonce: payload.nonce,
-    type: payload.type,
-    hasError: !!body?.error,
-    // Shape only, never values: confirms where the payload actually lives.
-    shape: {
-      dataKeys: Object.keys(body?.data ?? {}),
-      innerDataKeys: Object.keys(body?.data?.data ?? {}),
-    },
-  });
-
   if (payload.type !== "location_refresh") return;
 
   // The phone-side switch always wins over what the host asks for.
-  if (!(await isLocationSharingOn())) {
-    logEvent("push_ignored_sharing_off");
-    return;
-  }
+  if (!(await isLocationSharingOn())) return;
 
-  const delivered = await captureAndReportFix("push_refresh");
-  logEvent(delivered ? "push_wake_reported" : "push_wake_not_reported");
+  await captureAndReportFix("push_refresh");
 });
 
 export type PushRegistrationResult = "registered" | "permission_denied" | "unsupported" | "error";
@@ -111,7 +91,6 @@ export async function registerPushWake(promptIfNeeded: boolean): Promise<PushReg
     if (!perm.granted && promptIfNeeded && perm.canAskAgain) {
       perm = await Notifications.requestPermissionsAsync();
     }
-    logEvent("push_permission", { granted: perm.granted, canAskAgain: perm.canAskAgain });
     if (!perm.granted) return "permission_denied";
 
     await Notifications.registerTaskAsync(PUSH_TASK_NAME);
@@ -119,7 +98,6 @@ export async function registerPushWake(promptIfNeeded: boolean): Promise<PushReg
     const pairing = await loadPairing();
     const token = await Notifications.getDevicePushTokenAsync();
     if (pairing && typeof token.data === "string") await postPushToken(pairing, token.data);
-    logEvent("push_token_registered", { type: token.type });
 
     // FCM rotates tokens occasionally; the host must hear about the new one.
     Notifications.addPushTokenListener(async (t) => {
@@ -128,7 +106,7 @@ export async function registerPushWake(promptIfNeeded: boolean): Promise<PushReg
     });
     return "registered";
   } catch (err) {
-    logEvent("push_register_error", { message: err instanceof Error ? err.message : String(err) });
+    console.warn("Could not register for push:", err);
     return "error";
   }
 }

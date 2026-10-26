@@ -128,23 +128,6 @@ CREATE TABLE ai_usage (
 CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
 CREATE INDEX idx_ai_usage_user_id ON ai_usage(user_id);
 
--- ── Connector Debug Log (temporary) ──────────────────────────────────
--- TEMPORARY diagnostics for verifying the push-triggered location refresh on a
--- real phone (did a push wake it, how fast, was the fix fresh?). Not part of
--- the permanent Location Tracking data model. Drop this table, together with
--- the phone-side logEvent() calls and the debug-log route, once a push wake
--- has been verified on a real device — mobile-connector/src/debug-log.ts
--- lists exactly what to remove, and Location_Tracking.md's Questions section
--- has the verification test.
-CREATE TABLE connector_debug_logs (
-    id TEXT PRIMARY KEY,
-    device_id TEXT NOT NULL REFERENCES devices(id),
-    event_type TEXT NOT NULL,
-    detail TEXT,                          -- JSON blob, free-form per event_type
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX idx_connector_debug_logs_created_at ON connector_debug_logs(created_at);
-
 -- ── Device Watched Path ──────────────────────────────────────────────
 -- The actual filesystem paths a connector (or the host's own self-scan)
 -- watches for a given folder type — set from the Admin dashboard, per

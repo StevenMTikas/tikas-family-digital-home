@@ -23,7 +23,6 @@ import * as BackgroundFetch from "expo-background-fetch";
 import * as SecureStore from "expo-secure-store";
 import { loadPairing } from "./pairing";
 import { postLocation, type ReportSource } from "./api";
-import { logEvent } from "./debug-log"; // TEMPORARY — see debug-log.ts
 
 const HEARTBEAT_TASK_NAME = "tikas-connector-location-heartbeat";
 const HEARTBEAT_INTERVAL_SECONDS = 60 * 60; // a floor, not a guarantee; the OS decides the real cadence
@@ -37,7 +36,6 @@ const LEGACY_STREAM_TASK = "tikas-connector-background-location";
 const LEGACY_POLL_TASK = "tikas-connector-location-fallback-poll";
 
 TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
-  logEvent("heartbeat_fired");
   if (!(await isLocationSharingOn())) return BackgroundFetch.BackgroundFetchResult.NoData;
 
   const ok = await captureAndReportFix("heartbeat");
@@ -107,25 +105,35 @@ async function getFixViaForegroundServiceBurst(): Promise<Location.LocationObjec
   return state.best;
 }
 
+/** Cap on a one-shot background request: an FCM wake only lives for seconds, so never wait longer than this. */
+const BACKGROUND_CURRENT_TIMEOUT_MS = 10_000;
+
 /**
  * Foreground (app open): a plain request is fresh and fast. Background (push
- * wake, heartbeat): try the foreground-service burst first, and fall back to a
- * plain request if it can't start (e.g. a heartbeat has no push to exempt it).
+ * wake, heartbeat): first try the foreground-service burst, then fall back to
+ * a one-shot request. Whatever comes back is reported with its REAL
+ * timestamp, so a stale fix looks stale on the host instead of pretending to
+ * be current.
+ *
+ * A short plain location *subscription* was tried between those two on
+ * 2026-10-26 and removed: on the test phone it never returned in a headless
+ * wake, which blocked the wake from reporting anything at all.
  */
-async function acquireFix(mode: "foreground" | "background"): Promise<{ fix: Location.LocationObject; method: "burst" | "current" }> {
+async function acquireFix(mode: "foreground" | "background"): Promise<Location.LocationObject> {
   if (mode === "background") {
     try {
       const burst = await getFixViaForegroundServiceBurst();
-      if (burst) return { fix: burst, method: "burst" };
-    } catch (err) {
-      logEvent("burst_failed", { message: err instanceof Error ? err.message : String(err) });
+      if (burst && isFreshFix(burst)) return burst;
+    } catch {
+      // Expected on Android 14 even right after a high-priority push ("foreground service cannot be
+      // started when the application is in the background") — fall through to the one-shot request.
     }
   }
-  const fix = await withTimeout(
+
+  return withTimeout(
     Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High, mayShowUserSettingsDialog: false }),
-    FIX_TIMEOUT_MS
+    mode === "background" ? BACKGROUND_CURRENT_TIMEOUT_MS : FIX_TIMEOUT_MS
   );
-  return { fix, method: "current" };
 }
 
 function isRunningInExpoGo(): boolean {
@@ -165,23 +173,11 @@ export async function captureAndReportFix(source: ReportSource): Promise<boolean
     const { status } = await Location.getForegroundPermissionsAsync();
     if (status !== "granted") return false;
 
-    const startedAt = Date.now();
     // mayShowUserSettingsDialog (set false inside acquireFix) defaults to true
     // on Android and tries to show a system dialog; background handlers have
     // no screen to show it on, and it can make the call quietly return a stale
     // fix instead of failing.
-    const { fix, method } = await acquireFix(source === "foreground" ? "foreground" : "background");
-
-    // TEMPORARY diagnostics: fixAgeSeconds is how old the fix is on arrival —
-    // ~0-2s for a genuinely fresh fix, minutes for a stale cache hit.
-    logEvent(`fix_${source}`, {
-      method,
-      fresh: isFreshFix(fix),
-      accuracyM: fix.coords.accuracy,
-      mocked: fix.mocked,
-      fixAgeSeconds: Math.round((Date.now() - fix.timestamp) / 1000),
-      tookMs: Date.now() - startedAt,
-    });
+    const fix = await acquireFix(source === "foreground" ? "foreground" : "background");
 
     await postLocation(pairing, {
       latitude: fix.coords.latitude,
@@ -192,7 +188,6 @@ export async function captureAndReportFix(source: ReportSource): Promise<boolean
     });
     return true;
   } catch (err) {
-    logEvent(`fix_${source}_failed`, { message: err instanceof Error ? err.message : String(err) });
     console.warn(`Location report (${source}) failed:`, err);
     return false;
   }
