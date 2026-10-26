@@ -154,7 +154,7 @@ export async function* streamAssistantReply(userId: string, conversationId: stri
     if (!needsFamilyData && latestUserMessage && isFrontierConfigured()) {
       source = "frontier";
       const frontierTurns: FrontierTurn[] = recentWindow.map((m) => ({ role: m.role, content: m.content }));
-      for await (const chunk of streamFrontierReply(frontierTurns)) {
+      for await (const chunk of streamFrontierReply(frontierTurns, { userId })) {
         full += chunk;
         yield chunk;
       }
@@ -220,13 +220,15 @@ export async function* streamAssistantReply(userId: string, conversationId: stri
 }
 
 /**
- * The outside-call approval flow: shows the user exactly what's being sent,
- * requires the "Approve Outside Calls" permission (and the sensitive-data
- * gate if applicable — never grantable to a minor).
+ * The permission half of the outside-call approval flow: requires the
+ * "Approve Outside Calls" permission (and the sensitive-data gate if
+ * applicable — never grantable to a minor). Logs a blocked attempt, but
+ * deliberately does NOT log "approved" — a two-step flow (preview, then
+ * confirm) calls this at both steps, and only the confirm is a real approval.
  * See docs/01_System_Architecture/Security_Architecture.md and
  * docs/04_Permissions/AI_Permissions.md.
  */
-export async function requestOutsideCallApproval(
+export async function checkOutsideCallPermission(
   ctx: AIRequestContext,
   payloadDescription: string,
   isSensitive: boolean
@@ -254,10 +256,36 @@ export async function requestOutsideCallApproval(
     return false;
   }
 
+  return true;
+}
+
+/**
+ * Permission check plus the "approved" log entry — for a flow where invoking
+ * the action IS the approval (e.g. an Admin clicking "Generate Plan"). A flow
+ * with a separate preview step should call checkOutsideCallPermission for the
+ * preview and this only on confirm, so a cancelled preview isn't logged as an
+ * approval.
+ */
+export async function requestOutsideCallApproval(
+  ctx: AIRequestContext,
+  payloadDescription: string,
+  isSensitive: boolean
+): Promise<boolean> {
+  if (!(await checkOutsideCallPermission(ctx, payloadDescription, isSensitive))) return false;
+
   await logSecurityEvent({
     type: "outside_call_approved",
     userId: ctx.userId,
     detail: { payloadDescription, isSensitive },
   });
   return true;
+}
+
+/** The user saw the preview of an outbound call and declined it. */
+export async function recordOutsideCallDenied(ctx: AIRequestContext, payloadDescription: string): Promise<void> {
+  await logSecurityEvent({
+    type: "outside_call_denied",
+    userId: ctx.userId,
+    detail: { payloadDescription, reason: "user declined after previewing the payload" },
+  });
 }

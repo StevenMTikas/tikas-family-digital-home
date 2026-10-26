@@ -11,6 +11,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
+import { getViewableActivityTargets } from "@/lib/core/logging/activity";
 import UsersPageClient, { type CurrentUser, type Device, type FamilyMember } from "./UsersPageClient";
 
 interface UserRow {
@@ -88,6 +89,8 @@ export default async function UsersPage() {
       devices={devices}
       familyMembers={familyMembers}
       isSuperAdmin={actor.role === "super_admin"}
+      // Empty for anyone without view_child_activity_logs authority — the Activity tab is then not shown at all.
+      activityTargets={getViewableActivityTargets(actor)}
     />
   );
 }

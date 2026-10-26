@@ -8,7 +8,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
-import { getAuthUser, hasAdminAuthorityOver, hasPermission } from "@/lib/core/permissions";
+import { getAuthUser, hasAdminAuthorityOver } from "@/lib/core/permissions";
+import { requestOutsideCallApproval } from "@/lib/core/ai";
 import { fetchCurriculumMaterial } from "@/lib/core/homework/fetch-material";
 import { generateCurriculumPlan, type BlackoutRange } from "@/lib/core/ai/frontier";
 
@@ -49,7 +50,16 @@ export async function POST(req: NextRequest) {
   if (!hasAdminAuthorityOver(actor, childId)) {
     return errorResponse("FORBIDDEN", "Only an Admin or Super Admin over this child can generate a plan for them.", 403);
   }
-  if (!hasPermission(actor, "approveOutsideCalls")) {
+  // Clicking "Generate Plan" is itself the approval (there's no separate
+  // preview step), so this checks the permission and logs the outside call.
+  // Not marked sensitive: what leaves is public curriculum material plus
+  // subject/date settings, not family content.
+  const approved = await requestOutsideCallApproval(
+    { userId: actor.id, agent: "assistant" },
+    `Generate a curriculum plan for subject ${subjectId} (curriculum material sent to frontier model)`,
+    false
+  );
+  if (!approved) {
     return errorResponse("FORBIDDEN", "Generating a plan sends curriculum material to an outside model — you need Approve Outside Calls to do this.", 403);
   }
 
@@ -106,6 +116,7 @@ export async function POST(req: NextRequest) {
       blackouts,
       minPerWeek,
       maxPerWeek,
+      usage: { userId: actor.id },
     });
   } catch (err) {
     return errorResponse("GENERATION_FAILED", err instanceof Error ? err.message : "Plan generation failed.", 502);

@@ -22,6 +22,7 @@ import {
   giveMessageFeedback,
   previewEscalation,
   confirmEscalation,
+  denyEscalation,
   AssistantApiError,
   type ConversationSummary,
   type ConversationMessage,
@@ -275,8 +276,13 @@ export default function AssistantBubble() {
   }
 
   function cancelEscalation() {
+    const conversationId = activeId;
+    const messageId = escalatingId;
     setEscalatingId(null);
     setEscalationPreview(null);
+    // Fire-and-forget: the audit entry shouldn't hold up closing the preview,
+    // and a failure to record it isn't something the user can act on.
+    if (conversationId && messageId) denyEscalation(conversationId, messageId).catch(() => {});
   }
 
   async function handleConfirmEscalation() {

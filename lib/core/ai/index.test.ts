@@ -9,7 +9,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { beforeAll, beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { getDb } from "@/db/client";
-import { requestOutsideCallApproval, isAiEnabledForUser, streamAssistantReply, buildAssistantMessages } from "./index";
+import { requestOutsideCallApproval, checkOutsideCallPermission, recordOutsideCallDenied, isAiEnabledForUser, streamAssistantReply, buildAssistantMessages } from "./index";
 
 const { mockAnthropicStream } = vi.hoisted(() => ({ mockAnthropicStream: vi.fn() }));
 
@@ -110,6 +110,38 @@ describe("requestOutsideCallApproval", () => {
     // preventing the grant itself is Phase 4 Administration UI work, not
     // built yet — this test only proves the check-side enforcement holds.
     expect(await requestOutsideCallApproval({ userId: "malachi", agent: "assistant" }, "medical record", true)).toBe(false);
+  });
+});
+
+describe("checkOutsideCallPermission / recordOutsideCallDenied", () => {
+  function countEvents(type: string, userId: string): number {
+    return (getDb().prepare(`SELECT COUNT(*) AS n FROM security_events WHERE type = ? AND user_id = ?`).get(type, userId) as { n: number }).n;
+  }
+
+  it("permits an authorised user without logging an approval (a preview isn't an approval)", async () => {
+    const before = countEvents("outside_call_approved", "dad");
+    expect(await checkOutsideCallPermission({ userId: "dad", agent: "assistant" }, "a photo", false)).toBe(true);
+    expect(countEvents("outside_call_approved", "dad")).toBe(before);
+  });
+
+  it("still logs a blocked attempt for a user without the permission", async () => {
+    const before = countEvents("outside_call_blocked", "malachi");
+    expect(await checkOutsideCallPermission({ userId: "malachi", agent: "assistant" }, "a photo", false)).toBe(false);
+    expect(countEvents("outside_call_blocked", "malachi")).toBe(before + 1);
+  });
+
+  it("requestOutsideCallApproval logs the approval", async () => {
+    const before = countEvents("outside_call_approved", "dad");
+    await requestOutsideCallApproval({ userId: "dad", agent: "assistant" }, "a photo", false);
+    expect(countEvents("outside_call_approved", "dad")).toBe(before + 1);
+  });
+
+  it("recordOutsideCallDenied logs outside_call_denied with the payload description", async () => {
+    await recordOutsideCallDenied({ userId: "dad", agent: "assistant" }, "a photo");
+    const row = getDb()
+      .prepare(`SELECT detail FROM security_events WHERE type = 'outside_call_denied' AND user_id = 'dad' ORDER BY created_at DESC LIMIT 1`)
+      .get() as { detail: string };
+    expect(JSON.parse(row.detail).payloadDescription).toBe("a photo");
   });
 });
 

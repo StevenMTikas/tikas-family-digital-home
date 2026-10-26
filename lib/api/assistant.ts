@@ -104,6 +104,17 @@ export async function previewEscalation(conversationId: string, messageId: strin
   );
 }
 
+/** Records that the user previewed the escalation and declined it (the Logs screen's "Outside Call Denied"). */
+export async function denyEscalation(conversationId: string, messageId: string): Promise<void> {
+  await unwrap(
+    await fetch(`/api/assistant/conversations/${conversationId}/messages/${messageId}/escalate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deny: true }),
+    })
+  );
+}
+
 export async function confirmEscalation(conversationId: string, messageId: string): Promise<ConversationMessage> {
   return unwrap(
     await fetch(`/api/assistant/conversations/${conversationId}/messages/${messageId}/escalate`, {

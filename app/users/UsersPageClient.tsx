@@ -9,7 +9,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { updateMyProfile, createUser, UsersApiError, type NewUserInput } from "@/lib/api/users";
+import { updateMyProfile, createUser, getUserActivity, UsersApiError, type NewUserInput, type ActivityEntry } from "@/lib/api/users";
 import {
   getPushSubscriptionStatus,
   subscribeToPush,
@@ -72,7 +72,7 @@ function initials(fullName: string): string {
   return fullName.trim().charAt(0).toUpperCase() || "?";
 }
 
-type Tab = "profile" | "devices" | "family" | "connections" | "add";
+type Tab = "profile" | "devices" | "family" | "activity" | "connections" | "add";
 
 function TabButton({
   label,
@@ -101,11 +101,13 @@ export default function UsersPageClient({
   devices,
   familyMembers,
   isSuperAdmin,
+  activityTargets,
 }: {
   currentUser: CurrentUser;
   devices: Device[];
   familyMembers: FamilyMember[];
   isSuperAdmin: boolean;
+  activityTargets: { id: string; fullName: string }[];
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("profile");
@@ -118,6 +120,9 @@ export default function UsersPageClient({
         <TabButton label="My Profile" active={tab === "profile"} onClick={() => setTab("profile")} />
         <TabButton label="My Devices" active={tab === "devices"} onClick={() => setTab("devices")} />
         <TabButton label="Family Members" active={tab === "family"} onClick={() => setTab("family")} />
+        {activityTargets.length > 0 && (
+          <TabButton label="Activity" active={tab === "activity"} onClick={() => setTab("activity")} />
+        )}
         <TabButton label="Add Connection" active={tab === "connections"} onClick={() => setTab("connections")} />
         {isSuperAdmin && (
           <TabButton label="Add User" active={tab === "add"} onClick={() => setTab("add")} />
@@ -130,6 +135,7 @@ export default function UsersPageClient({
         )}
         {tab === "devices" && <MyDevicesTab devices={devices} />}
         {tab === "family" && <FamilyMembersTab members={familyMembers} />}
+        {tab === "activity" && activityTargets.length > 0 && <ActivityTab targets={activityTargets} />}
         {tab === "connections" && <AddConnectionsTab />}
         {tab === "add" && isSuperAdmin && <AddUserTab onCreated={() => router.refresh()} />}
       </div>
@@ -670,6 +676,73 @@ function FamilyMembersTab({ members }: { members: FamilyMember[] }) {
           )}
         </div>
       ))}
+    </div>
+  );
+}
+
+// Oversight view for the view_child_activity_logs permission (Authorization.md)
+// — the Super Admin sees everyone, a scoped Admin sees only their own child(ren).
+// The tab itself is only rendered when the server found someone to show.
+function ActivityTab({ targets }: { targets: { id: string; fullName: string }[] }) {
+  const [targetId, setTargetId] = useState(targets[0]?.id ?? "");
+  const [entries, setEntries] = useState<ActivityEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntries(null);
+    setError(null);
+    getUserActivity(targetId)
+      .then((rows) => !cancelled && setEntries(rows))
+      .catch((err) => !cancelled && setError(err instanceof Error ? err.message : "Couldn't load activity."));
+    return () => {
+      cancelled = true;
+    };
+  }, [targetId]);
+
+  return (
+    <div className="max-w-[640px]">
+      <div className="flex items-center gap-3 mb-2">
+        {targets.length > 1 ? (
+          <select
+            aria-label="Whose activity"
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            className="bg-surface rounded-xl border border-ink/10 px-3 py-2 text-[13.5px] text-ink"
+          >
+            {targets.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.fullName}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <div className="font-display text-base font-semibold text-ink">{targets[0]?.fullName}</div>
+        )}
+      </div>
+      <p className="text-xs text-ink-muted mb-4">
+        Logins, outside-call requests, password views, and document activity from the last 30 days. Assistant
+        conversations and location are not part of this view.
+      </p>
+
+      {error && <div className="text-sm text-red-700">{error}</div>}
+      {!error && entries === null && <div className="text-sm text-ink-muted">Loading…</div>}
+      {entries !== null && entries.length === 0 && <div className="text-sm text-ink-muted">No recent activity.</div>}
+      {entries !== null && entries.length > 0 && (
+        <ul className="bg-surface rounded-2xl shadow-[0_8px_20px_rgba(58,52,44,0.05)] divide-y divide-ink/10">
+          {entries.map((e) => (
+            <li key={e.id} className="px-5 py-3 flex items-baseline justify-between gap-4">
+              <div className="min-w-0">
+                <div className="text-[13.5px] text-ink">{e.label}</div>
+                {e.summary && <div className="text-xs text-ink-muted mt-0.5 truncate">{e.summary}</div>}
+              </div>
+              <div className="text-xs text-ink-muted whitespace-nowrap">
+                {new Date(e.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

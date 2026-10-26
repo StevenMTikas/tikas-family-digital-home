@@ -455,6 +455,21 @@ A browser/device's Web Push registration (Phase 6, see Notifications.md's "Andro
 | p256dh, auth | the subscription's encryption keys, required to send an encrypted push payload |
 | created_at | |
 
+### AI_Usage
+One row per outbound (frontier-model) call — who made it, which feature, which model, tokens used, how long it took, and whether it succeeded (`lib/core/ai/usage.ts`, 2026-10). Exists for spend visibility today and as the per-call record the planned pay-per-use billing model needs. Deliberately **not** a Security_Event: those are purged after 30 days, and usage data has to outlive that. Never purged by the scheduler. Local Ollama calls are not metered here.
+
+| Field | Notes |
+|---|---|
+| id | |
+| user_id | who triggered the call (nullable for any future system-initiated call) |
+| feature | `assistant_stream` (automatic routing of a no-family-data question), `escalation` (thumbs-down second opinion), or `curriculum_plan` |
+| provider | `anthropic` for MVP |
+| model | the model id actually requested |
+| input_tokens / output_tokens | as reported by the API; NULL if the call failed before any were reported |
+| latency_ms | wall-clock time for the call (for a streamed reply, until the stream completed) |
+| status | `ok` or `error` |
+| created_at | ISO, UTC |
+
 ## Relationships (Summary)
 
 - **User** → has many **Devices**

@@ -166,10 +166,52 @@ describe("POST /api/assistant/conversations/[id]/messages/[messageId]/escalate",
     expect(escalateToFrontier).toHaveBeenCalledWith(
       "What's a good substitute for buttermilk?",
       expect.any(String),
-      "Try water."
+      "Try water.",
+      { userId: "dad" }
     );
 
     const stored = getDb().prepare(`SELECT role, source, content FROM messages WHERE id = ?`).get(body.id);
     expect(stored).toEqual({ role: "assistant", source: "frontier", content: "Here's a second opinion from the frontier model." });
+  });
+  describe("outside-call audit trail", () => {
+    function countEvents(type: string, userId: string): number {
+      return (getDb().prepare(`SELECT COUNT(*) AS n FROM security_events WHERE type = ? AND user_id = ?`).get(type, userId) as { n: number }).n;
+    }
+
+    it("does not log an approval for a preview alone", async () => {
+      const { conversationId, replyId } = seedConversation("dad");
+      const before = countEvents("outside_call_approved", "dad");
+      await POST(escalateReq("dad", { confirm: false }), idParams(conversationId, replyId));
+      expect(countEvents("outside_call_approved", "dad")).toBe(before);
+    });
+
+    it("logs an approval when the user confirms", async () => {
+      const { conversationId, replyId } = seedConversation("dad");
+      const before = countEvents("outside_call_approved", "dad");
+      await POST(escalateReq("dad", { confirm: true }), idParams(conversationId, replyId));
+      expect(countEvents("outside_call_approved", "dad")).toBe(before + 1);
+    });
+
+    it("logs outside_call_denied, and sends nothing, when the user declines the preview", async () => {
+      const { conversationId, replyId } = seedConversation("dad");
+      vi.mocked(escalateToFrontier).mockClear();
+      const beforeDenied = countEvents("outside_call_denied", "dad");
+      const beforeApproved = countEvents("outside_call_approved", "dad");
+
+      const res = await POST(escalateReq("dad", { deny: true }), idParams(conversationId, replyId));
+
+      expect(res.status).toBe(200);
+      expect(countEvents("outside_call_denied", "dad")).toBe(beforeDenied + 1);
+      expect(countEvents("outside_call_approved", "dad")).toBe(beforeApproved);
+      expect(escalateToFrontier).not.toHaveBeenCalled();
+    });
+
+    it("does not let a user without the permission record a denial for a call they could never make", async () => {
+      const { conversationId, replyId } = seedConversation("malachi");
+      const before = countEvents("outside_call_denied", "malachi");
+      const res = await POST(escalateReq("malachi", { deny: true }), idParams(conversationId, replyId));
+      expect(res.status).toBe(403);
+      expect(countEvents("outside_call_denied", "malachi")).toBe(before);
+    });
   });
 });

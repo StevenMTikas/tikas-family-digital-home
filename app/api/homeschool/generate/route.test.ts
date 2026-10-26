@@ -92,6 +92,25 @@ describe("POST /api/homeschool/generate", () => {
     expect(mockFetchMaterial).not.toHaveBeenCalled();
   });
 
+  it("logs a blocked outside-call attempt when an Admin lacks Approve Outside Calls", async () => {
+    const subjectId = makeSubjectWithLink();
+    makeSchoolYear();
+    await POST(postReq("vee", { subjectId, childId: "malachi", minPerWeek: 2, maxPerWeek: 4 }));
+    const n = (getDb().prepare(`SELECT COUNT(*) AS n FROM security_events WHERE type = 'outside_call_blocked' AND user_id = 'vee'`).get() as { n: number }).n;
+    expect(n).toBeGreaterThan(0);
+  });
+
+  it("logs an outside_call_approved entry when a plan generation goes out", async () => {
+    const subjectId = makeSubjectWithLink();
+    makeSchoolYear();
+    mockFetchMaterial.mockResolvedValue("text");
+    mockGeneratePlan.mockResolvedValue([{ title: "Lesson 1", dueDate: "2026-09-07", curriculumReference: "" }]);
+    const before = (getDb().prepare(`SELECT COUNT(*) AS n FROM security_events WHERE type = 'outside_call_approved' AND user_id = 'dad'`).get() as { n: number }).n;
+    await POST(postReq("dad", { subjectId, childId: "malachi", minPerWeek: 2, maxPerWeek: 4 }));
+    const after = (getDb().prepare(`SELECT COUNT(*) AS n FROM security_events WHERE type = 'outside_call_approved' AND user_id = 'dad'`).get() as { n: number }).n;
+    expect(after).toBe(before + 1);
+  });
+
   it("requires a curriculum link on the subject first", async () => {
     const db = getDb();
     const subjectId = randomUUID();
