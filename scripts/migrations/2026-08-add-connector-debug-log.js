@@ -1,7 +1,7 @@
-// TEMPORARY diagnostic table for the 2026-08-24 background-location
-// investigation — see db/schema.sql's comment on connector_debug_logs and
-// Location_Tracking.md. Drop this table (and this migration) once the root
-// cause of the background task not firing is confirmed and fixed.
+// TEMPORARY diagnostic table for verifying the push-triggered location
+// refresh on a real phone — see db/schema.sql's comment on
+// connector_debug_logs and mobile-connector/src/debug-log.ts for when to drop
+// it (and this migration).
 //
 // Idempotent — safe to re-run.
 // Run with: node scripts/migrations/2026-08-add-connector-debug-log.js

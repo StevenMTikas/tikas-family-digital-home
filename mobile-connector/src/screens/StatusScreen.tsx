@@ -10,7 +10,9 @@ import * as MediaLibrary from "expo-media-library/legacy";
 import { runSync, pollPendingRequests } from "../sync";
 import { clearThumbnailCache } from "../thumbnail-cache";
 import { savePairing, clearPairing, type Pairing } from "../pairing";
-import { requestLocationPermissions, registerLocationReporting, unregisterLocationReporting, isLocationReportingActive } from "../location";
+import * as Notifications from "expo-notifications";
+import { registerPushWake } from "../push";
+import { enableLocationSharing, disableLocationSharing, isLocationSharingOn } from "../location";
 
 export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing; onUnpaired: () => void }) {
   // Photo access only — this app never touches video or audio. Requesting
@@ -24,27 +26,38 @@ export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing
   const [lastSyncAt, setLastSyncAt] = useState<string | undefined>(pairing.lastSyncAt);
   const [error, setError] = useState<string | null>(null);
   const [locationSharing, setLocationSharing] = useState<boolean | null>(null); // null = still checking
+  // Notifications are what let the host's "refresh now" pushes reach this phone.
+  const [notificationsOk, setNotificationsOk] = useState<boolean | null>(null);
 
   useEffect(() => {
-    isLocationReportingActive().then(setLocationSharing);
+    isLocationSharingOn().then(setLocationSharing);
+    Notifications.getPermissionsAsync().then((p) => setNotificationsOk(p.granted));
   }, []);
 
   const handleToggleLocationSharing = useCallback(async () => {
     if (locationSharing) {
-      await unregisterLocationReporting();
+      await disableLocationSharing();
       setLocationSharing(false);
       return;
     }
-    const granted = await requestLocationPermissions();
+    const granted = await enableLocationSharing();
     if (!granted) {
       Alert.alert(
         "Location permission needed",
-        "Tikas Connector needs \"Allow all the time\" location access to share your location with your family in the background."
+        "Tikas Connector needs \"Allow all the time\" location access so your family can see where you are when they check."
       );
       return;
     }
-    await registerLocationReporting();
     setLocationSharing(true);
+
+    const push = await registerPushWake(true);
+    setNotificationsOk(push === "registered");
+    if (push === "permission_denied") {
+      Alert.alert(
+        "Allow notifications for live updates",
+        "Without notifications, your location only updates when you open this app and roughly once an hour — your family won't see a fresh position when they check."
+      );
+    }
   }, [locationSharing]);
 
   const handleSync = useCallback(async () => {
@@ -118,6 +131,9 @@ export default function StatusScreen({ pairing, onUnpaired }: { pairing: Pairing
       <View style={styles.card}>
         <Text style={styles.label}>Location sharing</Text>
         <Text style={styles.value}>{locationSharing ? "On — shared with your family" : "Off"}</Text>
+        {locationSharing && notificationsOk === false && (
+          <Text style={styles.error}>Notifications are off, so live refresh can&apos;t reach this phone. Turn them on in Android settings.</Text>
+        )}
         <View style={styles.spacerSmall} />
         <Button
           title={locationSharing ? "Turn Off Location Sharing" : "Enable Location Sharing"}

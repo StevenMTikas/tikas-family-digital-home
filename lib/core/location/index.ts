@@ -13,20 +13,38 @@ import type { AuthUser } from "@/lib/core/permissions";
 
 const HISTORY_RETENTION_DAYS = 7;
 
+export type ReportSource = "push_refresh" | "foreground" | "heartbeat";
+export const REPORT_SOURCES: ReportSource[] = ["push_refresh", "foreground", "heartbeat"];
+
 export interface LocationReportInput {
   latitude: number;
   longitude: number;
   accuracyM?: number;
   recordedAt: string;
+  source?: ReportSource;
 }
 
 export function recordLocationReport(device: ConnectorDevice, input: LocationReportInput): void {
   getDb()
     .prepare(
-      `INSERT INTO location_reports (id, user_id, device_id, latitude, longitude, accuracy_m, recorded_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO location_reports (id, user_id, device_id, latitude, longitude, accuracy_m, recorded_at, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(randomUUID(), device.userId, device.id, input.latitude, input.longitude, input.accuracyM ?? null, input.recordedAt);
+    .run(
+      randomUUID(),
+      device.userId,
+      device.id,
+      input.latitude,
+      input.longitude,
+      input.accuracyM ?? null,
+      input.recordedAt,
+      input.source ?? null
+    );
+}
+
+/** Stores the phone's native FCM token so the host can wake it for an on-demand refresh. */
+export function savePushToken(deviceId: string, token: string): void {
+  getDb().prepare(`UPDATE devices SET push_token = ? WHERE id = ?`).run(token, deviceId);
 }
 
 export interface CurrentLocation {
@@ -36,6 +54,8 @@ export interface CurrentLocation {
   longitude: number;
   accuracyM: number | null;
   recordedAt: string;
+  /** null for readings written before sources were tracked. */
+  source: ReportSource | null;
 }
 
 /**
@@ -49,7 +69,7 @@ export function getCurrentFamilyLocations(): CurrentLocation[] {
   const rows = getDb()
     .prepare(
       `SELECT u.id AS user_id, u.full_name,
-              lr.latitude, lr.longitude, lr.accuracy_m, lr.recorded_at
+              lr.latitude, lr.longitude, lr.accuracy_m, lr.recorded_at, lr.source
        FROM users u
        JOIN location_reports lr ON lr.id = (
          SELECT id FROM location_reports
@@ -67,6 +87,7 @@ export function getCurrentFamilyLocations(): CurrentLocation[] {
     longitude: number;
     accuracy_m: number | null;
     recorded_at: string;
+    source: ReportSource | null;
   }[];
 
   return rows.map((r) => ({
@@ -76,6 +97,7 @@ export function getCurrentFamilyLocations(): CurrentLocation[] {
     longitude: r.longitude,
     accuracyM: r.accuracy_m,
     recordedAt: r.recorded_at,
+    source: r.source,
   }));
 }
 

@@ -8,7 +8,7 @@
 // Overview's initial data comes from the server (see page.tsx); every other
 // tab fetches its own data client-side on first selection.
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import QRCode from "qrcode";
 import * as adminApi from "@/lib/api/admin";
 import type {
@@ -297,6 +297,15 @@ function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss
     setHostUrl(window.location.origin);
   }, []);
 
+  // This panel renders at the top of the Devices tab, but "Regenerate Token" /
+  // "Add Device" are usually clicked further down the page — without this it
+  // looks like the click did nothing (a real confusion on 2026-10-25). Keyed to
+  // the token so regenerating again while the panel is already open scrolls too.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [device.authToken]);
+
   useEffect(() => {
     if (device.deviceType !== "phone" || !hostUrl) return;
     const payload = JSON.stringify({
@@ -310,7 +319,7 @@ function TokenReveal({ device, onDismiss }: { device: DeviceWithToken; onDismiss
   }, [device, hostUrl]);
 
   return (
-    <div className="bg-trust/10 border border-trust/30 rounded-2xl p-5 mb-5">
+    <div ref={panelRef} className="bg-trust/10 border border-trust/30 rounded-2xl p-5 mb-5 scroll-mt-4">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs font-semibold text-trust uppercase tracking-wide">
           Pairing token for {device.deviceName} — shown once

@@ -11,6 +11,7 @@
     },
     "android": {
       "package": "com.tikasfamily.connector",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -45,6 +46,12 @@
         {
           "locationAlwaysAndWhenInUsePermission": "Tikas Connector shares your location with your family so everyone can see where each other is. This only ever reaches your own family's server over Tailscale — never a public server.",
           "isAndroidBackgroundLocationEnabled": true
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "defaultChannel": "location-requests"
         }
       ],
       [

@@ -67,6 +67,11 @@ CREATE TABLE devices (
     designated_folders TEXT,              -- JSON array of folder-type strings, e.g. ["camera_photos","documents"]
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
     last_sync_at TEXT,
+    -- Native FCM device token, set by the phone connector (phones only) so the
+    -- host can wake it with a push for an on-demand location refresh — see
+    -- Location_Tracking.md. last_refresh_push_at drives the per-phone rate limit.
+    push_token TEXT,
+    last_refresh_push_at TEXT,
     -- Exactly one row has this set to 1: a device_type='computer' row
     -- representing the host machine itself (the one Next.js/this app
     -- already runs on). It's never paired by a real remote connector
@@ -90,6 +95,11 @@ CREATE TABLE location_reports (
     longitude REAL NOT NULL,
     accuracy_m REAL,
     recorded_at TEXT NOT NULL,            -- device clock, when the fix was taken
+    -- How the reading was produced: 'push_refresh' (phone woken on demand —
+    -- fresh GPS fix), 'foreground' (app was open), or 'heartbeat' (hourly
+    -- background poll — may be a stale network-cache fix, so lower
+    -- confidence). NULL for rows written before this column existed.
+    source TEXT CHECK (source IN ('push_refresh', 'foreground', 'heartbeat')),
     -- Purge is keyed off this, not recorded_at — a phone's clock skew must
     -- never be able to extend its own 7-day retention window.
     received_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -98,13 +108,13 @@ CREATE INDEX idx_location_reports_user_time ON location_reports(user_id, recorde
 CREATE INDEX idx_location_reports_received_at ON location_reports(received_at);
 
 -- ── Connector Debug Log (temporary) ──────────────────────────────────
--- TEMPORARY diagnostic instrumentation for the 2026-08-24 investigation into
--- why mobile-connector's background location tasks appear not to fire at
--- all in the background (multiple real-device trips showed zero readings
--- more than ~40m from home despite real movement) — see
--- Location_Tracking.md's "Real bug found" notes. Not part of the permanent
--- Location Tracking data model; drop this table once the root cause is
--- confirmed and location.ts's logEvent() calls are removed.
+-- TEMPORARY diagnostics for verifying the push-triggered location refresh on a
+-- real phone (did a push wake it, how fast, was the fix fresh?). Not part of
+-- the permanent Location Tracking data model. Drop this table, together with
+-- the phone-side logEvent() calls and the debug-log route, once a push wake
+-- has been verified on a real device — mobile-connector/src/debug-log.ts
+-- lists exactly what to remove, and Location_Tracking.md's Questions section
+-- has the verification test.
 CREATE TABLE connector_debug_logs (
     id TEXT PRIMARY KEY,
     device_id TEXT NOT NULL REFERENCES devices(id),

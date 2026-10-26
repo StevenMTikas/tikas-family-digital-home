@@ -1,6 +1,7 @@
-// TEMPORARY diagnostic endpoint for the 2026-08-24 background-location
-// investigation — see db/schema.sql's connector_debug_logs comment and
-// Location_Tracking.md. Delete this route once the root cause is found.
+// TEMPORARY diagnostic endpoint for verifying the push-triggered location
+// refresh on a real phone — see mobile-connector/src/debug-log.ts for why it
+// stays for now and exactly when to remove it (this route, the table, and the
+// phone-side calls all go together).
 
 import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";

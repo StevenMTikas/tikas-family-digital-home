@@ -8,7 +8,7 @@
 // rather than a session cookie (see middleware.ts's api/connectors exclusion).
 
 import { NextRequest, NextResponse } from "next/server";
-import { recordLocationReport } from "@/lib/core/location";
+import { recordLocationReport, REPORT_SOURCES, type ReportSource } from "@/lib/core/location";
 import { requireConnectorAuth, errorResponse } from "../auth";
 
 export async function POST(req: NextRequest) {
@@ -25,6 +25,16 @@ export async function POST(req: NextRequest) {
   }
   const accuracyM = typeof body?.accuracyM === "number" ? body.accuracyM : undefined;
 
-  recordLocationReport(auth.device, { latitude, longitude, accuracyM, recordedAt });
+  // Optional so older connector builds keep working; anything else is rejected
+  // rather than stored, since the UI trusts this to decide how to label a reading.
+  let source: ReportSource | undefined;
+  if (body?.source !== undefined) {
+    if (!REPORT_SOURCES.includes(body.source)) {
+      return errorResponse("INVALID_INPUT", `source must be one of: ${REPORT_SOURCES.join(", ")}.`, 400);
+    }
+    source = body.source;
+  }
+
+  recordLocationReport(auth.device, { latitude, longitude, accuracyM, recordedAt, source });
   return NextResponse.json({ ok: true });
 }

@@ -1,192 +1,290 @@
-// Background location reporting — see docs/02_Modules/Location_Tracking.md.
-// Deliberately a separate registered task from background.ts's file-sync
-// task: different permission (location, not media library), different
-// cadence, and a different host endpoint.
+// Location reporting for the family-location feature — see
+// docs/02_Modules/Location_Tracking.md ("Direction chosen").
 //
-// Two independent mechanisms, not one:
+// The phone does NO continuous tracking. Real-device testing showed Android's
+// Doze power management defeats continuous background location once the phone
+// is on battery (the stream delivered nothing, and the polling fallback
+// returned stale network-cache fixes), so a reading is produced only when:
 //
-// 1. A continuous location-updates task (startLocationUpdatesAsync) — gives
-//    good real-time granularity while it's alive, but real-device testing
-//    (2026-08-23) showed Android can still kill this continuous subscription
-//    after ~10-20 minutes even with the app's battery setting on
-//    "Unrestricted" — a known hard problem, worse on some OEM skins
-//    (Motorola in this case) that apply their own process management on top
-//    of the stock Android battery API. When it dies, it does NOT
-//    automatically restart itself.
-// 2. A BackgroundFetch one-shot poll (registerLocationFallbackPoll), same
-//    proven mechanism background.ts already uses for file sync — a periodic
-//    OS-scheduled wake that grabs a single fresh fix and posts it,
-//    independent of whether mechanism #1 is still alive. This is the real
-//    reliability floor: even if the continuous stream dies, this still
-//    delivers something roughly every 15-30 min (best-effort, same honesty
-//    as file sync's own documented cadence).
+//   1. push_refresh — the host pushes a "report now" signal because someone
+//      opened /location (handled in push.ts; this is the main path),
+//   2. foreground   — the app itself is opened,
+//   3. heartbeat    — an hourly BackgroundFetch poll, kept only so the 7-day
+//      emergency history isn't empty between checks. Best-effort and often
+//      stale, which is why the host labels these readings "approximate".
+//
+// A phone-side "sharing" flag is the single source of truth for whether this
+// phone may report at all: when it's off, pushes are ignored and the heartbeat
+// is unregistered, regardless of what the host asks.
 
 import * as Location from "expo-location";
 import * as TaskManager from "expo-task-manager";
 import * as BackgroundFetch from "expo-background-fetch";
+import * as SecureStore from "expo-secure-store";
 import { loadPairing } from "./pairing";
-import { postLocation } from "./api";
+import { postLocation, type ReportSource } from "./api";
 import { logEvent } from "./debug-log"; // TEMPORARY — see debug-log.ts
 
-const STREAM_TASK_NAME = "tikas-connector-background-location";
-const FALLBACK_TASK_NAME = "tikas-connector-location-fallback-poll";
-const MIN_INTERVAL_MS = 5 * 60 * 1000; // best-effort floor for the continuous stream; Android's scheduler is the real cap
+const HEARTBEAT_TASK_NAME = "tikas-connector-location-heartbeat";
+const HEARTBEAT_INTERVAL_SECONDS = 60 * 60; // a floor, not a guarantee; the OS decides the real cadence
+const SHARING_FLAG_KEY = "location_sharing_on";
+const FIX_TIMEOUT_MS = 15_000;
+const FOREGROUND_MIN_GAP_MS = 60_000;
 
-TaskManager.defineTask(STREAM_TASK_NAME, async ({ data, error }) => {
-  // Logged unconditionally, before any early return — the whole point is to
-  // find out whether this callback fires in the background AT ALL. See
-  // debug-log.ts.
-  logEvent("stream_task_fired", {
-    hasError: !!error,
-    errorMessage: error ? String(error) : undefined,
-    locationCount: (data as { locations?: Location.LocationObject[] } | undefined)?.locations?.length ?? 0,
-  });
+// Task names used by earlier builds (continuous stream; 15-minute poll). They
+// stay registered with the OS across an app update, so each launch retires them.
+const LEGACY_STREAM_TASK = "tikas-connector-background-location";
+const LEGACY_POLL_TASK = "tikas-connector-location-fallback-poll";
 
-  if (error) {
-    console.warn("Background location task error:", error);
-    return;
-  }
-  const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations;
-  const latest = locations?.[locations.length - 1];
-  if (!latest) return;
-  logEvent("stream_task_location", {
-    lat: latest.coords.latitude,
-    lon: latest.coords.longitude,
-    accuracyM: latest.coords.accuracy,
-    mocked: latest.mocked,
-    fixTimestamp: new Date(latest.timestamp).toISOString(),
-  });
-  await reportLocation(latest);
+TaskManager.defineTask(HEARTBEAT_TASK_NAME, async () => {
+  logEvent("heartbeat_fired");
+  if (!(await isLocationSharingOn())) return BackgroundFetch.BackgroundFetchResult.NoData;
+
+  const ok = await captureAndReportFix("heartbeat");
+  return ok ? BackgroundFetch.BackgroundFetchResult.NewData : BackgroundFetch.BackgroundFetchResult.Failed;
 });
 
-TaskManager.defineTask(FALLBACK_TASK_NAME, async () => {
-  logEvent("fallback_task_fired");
+// --- Getting a genuinely fresh fix from the background -----------------------
+//
+// Android throttles background apps to a few location updates per hour and
+// otherwise hands back a CACHED position — a real-device test (2026-10-25)
+// showed a push wake returning a 5-minute-old, 100m-accuracy fix in 44ms. An
+// app running a foreground service is exempt, and Android allows starting one
+// from the high-priority push that woke us. So a background request starts a
+// short-lived foreground-service location burst (seconds, with a brief
+// notification), takes the first genuinely fresh fix, and stops it again —
+// unlike the long-lived continuous stream that Doze killed, this only has to
+// survive a few seconds.
 
-  const pairing = await loadPairing();
-  if (!pairing) {
-    logEvent("fallback_task_no_pairing");
-    return BackgroundFetch.BackgroundFetchResult.NoData;
-  }
+const BURST_TASK_NAME = "tikas-connector-location-burst";
+const BURST_BUDGET_MS = 12_000;
+const FRESH_MAX_AGE_MS = 15_000;
+const FRESH_MAX_ACCURACY_M = 100;
 
-  const { status } = await Location.getForegroundPermissionsAsync();
-  if (status !== "granted") {
-    logEvent("fallback_task_no_permission", { status });
-    return BackgroundFetch.BackgroundFetchResult.NoData;
-  }
+/** Set only while a burst is running; the burst task hands each location to it. */
+let onBurstLocation: ((loc: Location.LocationObject) => void) | null = null;
+
+TaskManager.defineTask(BURST_TASK_NAME, async ({ data, error }) => {
+  if (error || !onBurstLocation) return;
+  const locations = (data as { locations?: Location.LocationObject[] } | undefined)?.locations ?? [];
+  for (const loc of locations) onBurstLocation(loc);
+});
+
+function isFreshFix(loc: Location.LocationObject): boolean {
+  return Date.now() - loc.timestamp <= FRESH_MAX_AGE_MS && (loc.coords.accuracy ?? Infinity) <= FRESH_MAX_ACCURACY_M;
+}
+
+/** Returns the freshest fix seen within the budget (null if none arrived at all). Always stops the service. */
+async function getFixViaForegroundServiceBurst(): Promise<Location.LocationObject | null> {
+  const state: { best: Location.LocationObject | null } = { best: null };
+  let resolveFresh: () => void = () => {};
+  const freshArrived = new Promise<void>((resolve) => {
+    resolveFresh = resolve;
+  });
+
+  onBurstLocation = (loc) => {
+    if (!state.best || loc.timestamp > state.best.timestamp) state.best = loc;
+    if (isFreshFix(loc)) resolveFresh();
+  };
 
   try {
-    // mayShowUserSettingsDialog defaults to true on Android — it prompts
-    // for improved-accuracy mode (GPS+WiFi+cell) via a system dialog. This
-    // task runs headless with no Activity to show that dialog on; real
-    // multi-trip device testing (2026-08-23/24) showed exactly the
-    // no-error, silently-stale-location symptom that produces — every
-    // fallback-poll reading stayed within meters of home regardless of
-    // actual movement, with no thrown error to explain why. Explicitly
-    // disabling it (and requesting High rather than Balanced accuracy) is
-    // the fix being tested next.
-    const fix = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High, mayShowUserSettingsDialog: false });
-    logEvent("fallback_task_location", {
-      lat: fix.coords.latitude,
-      lon: fix.coords.longitude,
+    await Location.startLocationUpdatesAsync(BURST_TASK_NAME, {
+      accuracy: Location.Accuracy.High,
+      mayShowUserSettingsDialog: false,
+      timeInterval: 1000,
+      distanceInterval: 0,
+      foregroundService: {
+        notificationTitle: "Tikas Connector",
+        notificationBody: "Checking your location for your family…",
+        killServiceOnDestroy: true,
+      },
+    });
+    await Promise.race([freshArrived, new Promise<void>((resolve) => setTimeout(resolve, BURST_BUDGET_MS))]);
+  } finally {
+    onBurstLocation = null;
+    await Location.stopLocationUpdatesAsync(BURST_TASK_NAME).catch(() => {});
+  }
+  return state.best;
+}
+
+/**
+ * Foreground (app open): a plain request is fresh and fast. Background (push
+ * wake, heartbeat): try the foreground-service burst first, and fall back to a
+ * plain request if it can't start (e.g. a heartbeat has no push to exempt it).
+ */
+async function acquireFix(mode: "foreground" | "background"): Promise<{ fix: Location.LocationObject; method: "burst" | "current" }> {
+  if (mode === "background") {
+    try {
+      const burst = await getFixViaForegroundServiceBurst();
+      if (burst) return { fix: burst, method: "burst" };
+    } catch (err) {
+      logEvent("burst_failed", { message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  const fix = await withTimeout(
+    Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High, mayShowUserSettingsDialog: false }),
+    FIX_TIMEOUT_MS
+  );
+  return { fix, method: "current" };
+}
+
+function isRunningInExpoGo(): boolean {
+  return typeof expo !== "undefined" && !!(globalThis as any).expo?.modules?.ExpoGo;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      }
+    );
+  });
+}
+
+export async function isLocationSharingOn(): Promise<boolean> {
+  return (await SecureStore.getItemAsync(SHARING_FLAG_KEY)) === "1";
+}
+
+/**
+ * Takes one fresh GPS fix and reports it to the host, tagged with how it was
+ * triggered. Returns whether a reading was actually delivered. Never throws —
+ * every caller is a background handler that must finish quietly.
+ */
+export async function captureAndReportFix(source: ReportSource): Promise<boolean> {
+  try {
+    const pairing = await loadPairing();
+    if (!pairing) return false;
+
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== "granted") return false;
+
+    const startedAt = Date.now();
+    // mayShowUserSettingsDialog (set false inside acquireFix) defaults to true
+    // on Android and tries to show a system dialog; background handlers have
+    // no screen to show it on, and it can make the call quietly return a stale
+    // fix instead of failing.
+    const { fix, method } = await acquireFix(source === "foreground" ? "foreground" : "background");
+
+    // TEMPORARY diagnostics: fixAgeSeconds is how old the fix is on arrival —
+    // ~0-2s for a genuinely fresh fix, minutes for a stale cache hit.
+    logEvent(`fix_${source}`, {
+      method,
+      fresh: isFreshFix(fix),
       accuracyM: fix.coords.accuracy,
       mocked: fix.mocked,
-      fixTimestamp: new Date(fix.timestamp).toISOString(),
+      fixAgeSeconds: Math.round((Date.now() - fix.timestamp) / 1000),
+      tookMs: Date.now() - startedAt,
     });
-    await reportLocation(fix);
-    return BackgroundFetch.BackgroundFetchResult.NewData;
-  } catch (err) {
-    logEvent("fallback_task_error", { message: err instanceof Error ? err.message : String(err) });
-    console.warn("Location fallback poll failed:", err);
-    return BackgroundFetch.BackgroundFetchResult.Failed;
-  }
-});
 
-async function reportLocation(fix: Location.LocationObject): Promise<void> {
-  const pairing = await loadPairing();
-  if (!pairing) return;
-
-  try {
     await postLocation(pairing, {
       latitude: fix.coords.latitude,
       longitude: fix.coords.longitude,
       accuracyM: fix.coords.accuracy ?? undefined,
       recordedAt: new Date(fix.timestamp).toISOString(),
+      source,
     });
-    logEvent("report_location_ok");
+    return true;
   } catch (err) {
-    logEvent("report_location_failed", { message: err instanceof Error ? err.message : String(err) });
-    console.warn("Location report failed:", err);
+    logEvent(`fix_${source}_failed`, { message: err instanceof Error ? err.message : String(err) });
+    console.warn(`Location report (${source}) failed:`, err);
+    return false;
   }
 }
 
-// Background location is unavailable in Expo Go (same constraint as
-// background.ts's file-sync task) — only meaningful once this runs as a
-// standalone/dev-client build.
-function isRunningInExpoGo(): boolean {
-  return typeof expo !== "undefined" && !!(globalThis as any).expo?.modules?.ExpoGo;
+let lastForegroundReportAt = 0;
+
+/** Reports a fresh fix when the app is opened — cheap, and as reliable as anything gets. Rate-limited so rapid app switching can't spam. */
+export async function reportForegroundFix(): Promise<void> {
+  if (!(await isLocationSharingOn())) return;
+  if (Date.now() - lastForegroundReportAt < FOREGROUND_MIN_GAP_MS) return;
+  lastForegroundReportAt = Date.now();
+  await captureAndReportFix("foreground");
 }
 
+/**
+ * Unregisters task names left behind by earlier builds. Safe to call on every
+ * launch. Returns whether any were found — i.e. whether this phone had sharing
+ * on under the old build, so the choice can carry over without a re-enable.
+ */
+async function retireLegacyTasks(): Promise<boolean> {
+  let found = false;
+  try {
+    if (await TaskManager.isTaskRegisteredAsync(LEGACY_STREAM_TASK)) {
+      found = true;
+      await Location.stopLocationUpdatesAsync(LEGACY_STREAM_TASK);
+    }
+  } catch (err) {
+    console.warn("Could not retire legacy location stream:", err);
+  }
+  try {
+    if (await TaskManager.isTaskRegisteredAsync(LEGACY_POLL_TASK)) {
+      found = true;
+      await BackgroundFetch.unregisterTaskAsync(LEGACY_POLL_TASK);
+    }
+  } catch (err) {
+    console.warn("Could not retire legacy location poll:", err);
+  }
+  return found;
+}
+
+async function ensureHeartbeatRegistered(): Promise<void> {
+  const status = await BackgroundFetch.getStatusAsync();
+  if (status === BackgroundFetch.BackgroundFetchStatus.Restricted || status === BackgroundFetch.BackgroundFetchStatus.Denied) {
+    return; // the OS has disabled background execution for this app — nothing to do from here
+  }
+  if (await TaskManager.isTaskRegisteredAsync(HEARTBEAT_TASK_NAME)) return;
+  await BackgroundFetch.registerTaskAsync(HEARTBEAT_TASK_NAME, {
+    minimumInterval: HEARTBEAT_INTERVAL_SECONDS,
+    stopOnTerminate: false,
+    startOnBoot: true,
+  });
+}
+
+/**
+ * Called on every app open once paired: retires leftovers from earlier builds
+ * and, if sharing is on, makes sure the heartbeat is registered. Never prompts.
+ */
 export async function registerLocationReporting(): Promise<void> {
   if (isRunningInExpoGo()) return;
-
-  const { status: foregroundStatus } = await Location.getForegroundPermissionsAsync();
-  if (foregroundStatus !== "granted") return; // caller is responsible for prompting first — see StatusScreen.tsx
-
-  const { status: backgroundStatus } = await Location.getBackgroundPermissionsAsync();
-  if (backgroundStatus !== "granted") return;
-
-  const streamAlreadyRegistered = await TaskManager.isTaskRegisteredAsync(STREAM_TASK_NAME);
-  logEvent("register_called", { streamAlreadyRegistered });
-  if (!streamAlreadyRegistered) {
-    await Location.startLocationUpdatesAsync(STREAM_TASK_NAME, {
-      accuracy: Location.Accuracy.High,
-      mayShowUserSettingsDialog: false, // see the fallback task's comment — same headless-task reasoning applies here
-      timeInterval: MIN_INTERVAL_MS,
-      // 500m, not 100 — real-device testing showed 100m fired every few
-      // seconds at driving speed (Android appears to treat timeInterval and
-      // distanceInterval as "whichever comes first," not "at least
-      // timeInterval apart"), which is real unwanted battery/data cost, not
-      // just extra precision.
-      distanceInterval: 500,
-      showsBackgroundLocationIndicator: false,
-      foregroundService: {
-        notificationTitle: "Tikas Connector",
-        notificationBody: "Sharing your location with your family.",
-      },
-    });
+  const hadLegacySharing = await retireLegacyTasks();
+  if (hadLegacySharing && (await SecureStore.getItemAsync(SHARING_FLAG_KEY)) === null) {
+    await SecureStore.setItemAsync(SHARING_FLAG_KEY, "1");
   }
 
-  const fallbackAlreadyRegistered = await TaskManager.isTaskRegisteredAsync(FALLBACK_TASK_NAME);
-  if (!fallbackAlreadyRegistered) {
-    await BackgroundFetch.registerTaskAsync(FALLBACK_TASK_NAME, {
-      minimumInterval: 15 * 60, // seconds — a floor, not a guarantee; matches background.ts's file-sync cadence
-      stopOnTerminate: false,
-      startOnBoot: true,
-    });
-  }
+  if (!(await isLocationSharingOn())) return;
+  const { status } = await Location.getBackgroundPermissionsAsync();
+  if (status !== "granted") return;
+  await ensureHeartbeatRegistered();
 }
 
-export async function unregisterLocationReporting(): Promise<void> {
-  if (await TaskManager.isTaskRegisteredAsync(STREAM_TASK_NAME)) {
-    await Location.stopLocationUpdatesAsync(STREAM_TASK_NAME);
-  }
-  if (await TaskManager.isTaskRegisteredAsync(FALLBACK_TASK_NAME)) {
-    await BackgroundFetch.unregisterTaskAsync(FALLBACK_TASK_NAME);
-  }
-}
-
-export async function isLocationReportingActive(): Promise<boolean> {
-  // "Active" means the fallback poll is registered — it's the reliability
-  // floor. The continuous stream is a bonus on top when it's alive, but its
-  // own registration state isn't a trustworthy signal by itself (real-device
-  // testing showed it can silently stop delivering updates while still
-  // reporting itself as registered).
-  return TaskManager.isTaskRegisteredAsync(FALLBACK_TASK_NAME);
-}
-
+/** Asks for the permissions this feature needs (foreground, then "all the time"). */
 export async function requestLocationPermissions(): Promise<boolean> {
   const foreground = await Location.requestForegroundPermissionsAsync();
   if (foreground.status !== "granted") return false;
   const background = await Location.requestBackgroundPermissionsAsync();
   return background.status === "granted";
+}
+
+/** Turns sharing on for this phone: records the choice, registers the heartbeat, and reports once right away. */
+export async function enableLocationSharing(): Promise<boolean> {
+  if (!(await requestLocationPermissions())) return false;
+  await SecureStore.setItemAsync(SHARING_FLAG_KEY, "1");
+  if (!isRunningInExpoGo()) await ensureHeartbeatRegistered();
+  await reportForegroundFix();
+  return true;
+}
+
+/** Turns sharing off for this phone: pushes are ignored and the heartbeat stops. */
+export async function disableLocationSharing(): Promise<void> {
+  await SecureStore.setItemAsync(SHARING_FLAG_KEY, "0");
+  if (await TaskManager.isTaskRegisteredAsync(HEARTBEAT_TASK_NAME)) {
+    await BackgroundFetch.unregisterTaskAsync(HEARTBEAT_TASK_NAME);
+  }
 }

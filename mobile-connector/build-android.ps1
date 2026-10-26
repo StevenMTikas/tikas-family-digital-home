@@ -66,7 +66,7 @@ if (Test-Path $BuildDir) {
 }
 New-Item -ItemType Directory -Path $BuildDir -Force | Out-Null
 
-$topLevelFiles = @("App.tsx", "index.ts", "package.json", "package-lock.json", "app.json", "eas.json", "tsconfig.json", "README.md")
+$topLevelFiles = @("App.tsx", "index.ts", "package.json", "package-lock.json", "app.json", "eas.json", "tsconfig.json", "README.md", "google-services.json")
 foreach ($f in $topLevelFiles) {
   $src = Join-Path $SourceDir $f
   if (Test-Path $src) { Copy-Item $src (Join-Path $BuildDir $f) -Force }

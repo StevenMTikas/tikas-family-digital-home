@@ -13,6 +13,14 @@ connector/config.json
 *.sqlite
 .env
 .env.local
+# Firebase credentials (location push-on-demand) — the repo is public, so
+# these must never be committed. The service-account key in particular can
+# send pushes to any registered phone; keep it in .env.local / a local file only.
+google-services.json
+**/google-services.json
+*firebase-adminsdk*.json
+*service-account*.json
+secrets/
 .DS_Store
 *.log
 *.tsbuildinfo

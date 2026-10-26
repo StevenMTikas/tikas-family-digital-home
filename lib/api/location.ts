@@ -8,6 +8,15 @@ export interface CurrentLocation {
   longitude: number;
   accuracyM: number | null;
   recordedAt: string;
+  /** How the reading was produced; null for older readings. */
+  source: "push_refresh" | "foreground" | "heartbeat" | null;
+}
+
+export interface RefreshResult {
+  /** Users whose phone was actually asked for a fresh reading. */
+  requested: string[];
+  /** false when the host has no push key configured, so nothing can be requested. */
+  configured: boolean;
 }
 
 export interface LocationHistoryEntry {
@@ -35,6 +44,17 @@ async function unwrap<T>(resPromise: Response | Promise<Response>): Promise<T> {
 
 export function getCurrentLocations(): Promise<CurrentLocation[]> {
   return unwrap(fetch("/api/location"));
+}
+
+/** Wakes phones for a fresh reading. With a userId it's the manual per-person refresh. */
+export function requestRefresh(userId?: string): Promise<RefreshResult> {
+  return unwrap(
+    fetch("/api/location/refresh", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(userId ? { userId } : {}),
+    })
+  );
 }
 
 export function getLocationSettings(): Promise<LocationSettings> {

@@ -54,6 +54,8 @@ Represents a trusted computer or phone running a connector.
 | designated_folders | list of folder-type strings (`camera_photos`, `documents`) the connector scans on this device — decided per-device, not uniform across all devices, so e.g. Vee's phone can sync Camera Roll + Downloads while Malachi's computer only syncs a school-documents folder (see File_Connector_Architecture.md's Questions) |
 | added_at | |
 | last_sync_at | connectors sync once/day for MVP; see System_Overview.md |
+| push_token | phones only — the phone connector's native Firebase Cloud Messaging token, so the host can wake it for an on-demand location refresh; cleared when FCM reports it dead (see Location_Tracking.md) |
+| last_refresh_push_at | when this phone was last sent a refresh push — drives the one-push-per-minute rate limit |
 | is_host_device | true for exactly one row — the host machine itself, scanned in-process rather than by a real connector (see File_Connector_Architecture.md's "Host Self-Scan") |
 
 ### Location_Report
@@ -67,6 +69,7 @@ A single location reading reported by a family member's phone (Location_Tracking
 | latitude / longitude | |
 | accuracy_m | device-reported horizontal accuracy, if available |
 | recorded_at | device clock, when the fix was taken |
+| source | push_refresh / foreground / heartbeat — how the reading was produced; the UI labels heartbeat readings as approximate. NULL for rows written before this existed |
 | received_at | server clock, when the host received it — retention is keyed off this, not recorded_at, so a phone's clock skew can't extend its own retention |
 
 ### Device_Watched_Path

@@ -56,9 +56,7 @@ export async function getPendingRequests(pairing: Pairing): Promise<PendingReque
   return (await apiRequest(pairing, "/api/connectors/pending-requests")) as PendingRequest[];
 }
 
-// TEMPORARY — see docs/02_Modules/Location_Tracking.md's background-location
-// investigation notes and src/debug-log.ts. Remove once the root cause of
-// the background tasks not firing is confirmed and fixed.
+// TEMPORARY — see src/debug-log.ts for why it stays and exactly when to remove it.
 export async function postDebugLog(pairing: Pairing, eventType: string, detail?: unknown): Promise<void> {
   await apiRequest(pairing, "/api/connectors/debug-log", {
     method: "POST",
@@ -67,11 +65,24 @@ export async function postDebugLog(pairing: Pairing, eventType: string, detail?:
   });
 }
 
+/** How a reading was produced — the host labels low-confidence ones (heartbeat) in the UI. */
+export type ReportSource = "push_refresh" | "foreground" | "heartbeat";
+
 export interface LocationReading {
   latitude: number;
   longitude: number;
   accuracyM?: number;
   recordedAt: string; // ISO string, device clock
+  source: ReportSource;
+}
+
+/** Tells the host this phone's native FCM token, so it can be woken for an on-demand refresh. */
+export async function postPushToken(pairing: Pairing, token: string): Promise<void> {
+  await apiRequest(pairing, "/api/connectors/push-token", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token }),
+  });
 }
 
 // Deliberately its own endpoint, not folded into postSync — see
