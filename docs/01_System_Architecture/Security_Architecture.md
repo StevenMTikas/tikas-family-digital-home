@@ -89,7 +89,7 @@ The following events are logged and visible to Dad (Super Admin), and to Vee for
 - Password resets
 - Device additions and revocations
 - Permission grants and changes (including "Approve Outside Calls")
-- Every outside-call approval or denial — who approved it, what was sent, and when
+- Every outside-call approval or denial — who approved it, what was sent, and when. An approval is logged when the user *confirms* after seeing the payload preview (not when the preview is merely shown); cancelling the preview logs a denial. A flow with no separate preview (e.g. an Admin clicking "Generate Plan") logs the approval at the click.
 - Every **blocked attempt** to reach outside the home network by a user who lacks the "Approve Outside Calls" permission — the user is told they lack the permission and who to contact, and the Super Admin receives a passive notification of the attempt on their Admin Dashboard (awareness only, not an active approval request)
 
 This logging is the security backbone the Guardian and Admin Monitoring modules build on — it belongs here because it's a security requirement first, a monitoring feature second.

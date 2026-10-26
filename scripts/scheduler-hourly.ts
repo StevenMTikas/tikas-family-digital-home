@@ -134,6 +134,33 @@ async function main() {
     console.error("[scheduler-hourly] Recurrence top-up failed:", err);
   }
 
+  // Public-exposure drift check — compares the live `tailscale serve` config
+  // against the Funnel allowlist (lib/core/network/funnel-exposure.ts). The
+  // allowlist is what keeps location, connectors, and Administration
+  // tailnet-only; a wrongly-mounted path on the Funnel port is the one way
+  // that guarantee silently breaks, and it would do so outside this codebase.
+  try {
+    const { execFileSync } = await import("child_process");
+    const { findUnexpectedFunnelPaths } = await import("../lib/core/network/funnel-exposure");
+    const status = JSON.parse(execFileSync("tailscale", ["serve", "status", "--json"], { encoding: "utf8", timeout: 15000 }));
+    const drift = findUnexpectedFunnelPaths(status);
+    if (drift.length > 0) {
+      const summary = drift.map((d) => `${d.path} on ${d.hostPort}`).join(", ");
+      console.error(`[scheduler-hourly] Funnel exposure drift — publicly reachable but not on the allowlist: ${summary}`);
+      const superAdmin = getDb().prepare(`SELECT id FROM users WHERE role = 'super_admin' LIMIT 1`).get() as { id: string } | undefined;
+      if (superAdmin) {
+        await createNotification({
+          userId: superAdmin.id,
+          text: `Security: the public Tailscale Funnel listener is exposing paths that aren't on the allowlist (${summary}). Check "tailscale serve status".`,
+          severity: "urgent",
+        });
+      }
+    }
+  } catch (err) {
+    // A failed check is not a pass — log it loudly rather than assuming safe.
+    console.error("[scheduler-hourly] Funnel exposure check could not run (is the tailscale CLI on PATH?):", err);
+  }
+
   // Scans the host machine's own dashboard-managed folders — see
   // lib/core/connectors/hostScan.ts. Runs every tick (not gated) since it's
   // cheap local disk I/O, no network involved.
@@ -144,4 +171,15 @@ async function main() {
   }
 }
 
-main().then(() => process.exit(0));
+// Per-step try/catch inside main() covers each job failing on its own, but
+// not what runs outside them — loadEnv(), the dynamic imports, a thrown
+// module-load error. Node would still exit non-zero on the resulting
+// unhandled rejection, but with a bare stack trace and no timestamp in the
+// shared .log file — this makes the failure line greppable and the exit
+// code deliberate, so Task Scheduler's LastTaskResult reflects it.
+main()
+  .then(() => process.exit(0))
+  .catch((err) => {
+    console.error(`[scheduler-hourly] ${new Date().toISOString()} fatal:`, err);
+    process.exit(1);
+  });

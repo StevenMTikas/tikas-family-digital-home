@@ -5,15 +5,17 @@
 // unlike the automatic no-family-data routing in streamAssistantReply, which
 // needs no approval because nothing family-specific is ever sent.
 //
-// Two-step: POST with no body (or confirm: false) returns a preview of
+// Three outcomes: POST with no body (or confirm: false) returns a preview of
 // exactly what would be sent, per AI_Permissions.md's "the approval prompt
-// shows exactly what's being sent." POST with confirm: true actually sends it.
+// shows exactly what's being sent." POST with confirm: true actually sends it
+// (and is the only step logged as an approval). POST with deny: true records
+// that the user previewed it and declined.
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getDb } from "@/db/client";
 import { getAuthUser } from "@/lib/core/permissions";
-import { requestOutsideCallApproval } from "@/lib/core/ai";
+import { checkOutsideCallPermission, requestOutsideCallApproval, recordOutsideCallDenied } from "@/lib/core/ai";
 import { getTopMemories, formatMemoriesForPrompt } from "@/lib/core/ai/memory";
 import { isFrontierConfigured, escalateToFrontier } from "@/lib/core/ai/frontier";
 
@@ -73,17 +75,26 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   // (AI_Permissions.md) — so the stricter gate applies even though this
   // isn't marked sensitive at the source. Categorically unavailable to a
   // minor's account regardless of "Approve Outside Calls".
-  const approved = await requestOutsideCallApproval(
+  const body = await req.json().catch(() => null);
+  const confirming = body?.confirm === true;
+  const outsideCallDescription = "Escalate an Assistant reply to a frontier model (thumbs-down second opinion)";
+
+  const permitted = await (confirming ? requestOutsideCallApproval : checkOutsideCallPermission)(
     { userId: actor.id, agent: "assistant" },
-    "Escalate an Assistant reply to a frontier model (thumbs-down second opinion)",
+    outsideCallDescription,
     true
   );
-  if (!approved) {
+  if (!permitted) {
     return errorResponse(
       "FORBIDDEN",
       "Only someone with the Approve Outside Calls and sensitive-data permissions can escalate to a frontier model.",
       403
     );
+  }
+
+  if (body?.deny === true) {
+    await recordOutsideCallDenied({ userId: actor.id, agent: "assistant" }, outsideCallDescription);
+    return NextResponse.json({ ok: true });
   }
 
   // Re-fetched fresh rather than reconstructed from when the original reply
@@ -93,8 +104,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const memories = await getTopMemories(actor.id);
   const memoryContext = formatMemoriesForPrompt(memories);
 
-  const body = await req.json().catch(() => null);
-  if (body?.confirm !== true) {
+  if (!confirming) {
     return NextResponse.json({
       question: question.content,
       localAnswer: reply.content,
@@ -102,7 +112,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     });
   }
 
-  const frontierAnswer = await escalateToFrontier(question.content, memoryContext, reply.content);
+  const frontierAnswer = await escalateToFrontier(question.content, memoryContext, reply.content, { userId: actor.id });
 
   const newMessageId = randomUUID();
   const now = new Date().toISOString();

@@ -44,7 +44,7 @@ Defines the Logs screen — where the security events already required by `Secur
 
 ## Permissions
 
-- **Super Admin only.** Consistent with `Administration.md`'s existing rule that technical/system-wide logs are not part of a scoped Admin's reduced view — Vee's access to Malachi-specific activity (per `view_child_activity_logs`, `Authorization.md`) is a separate, narrower capability from this full security log.
+- **Super Admin only.** Consistent with `Administration.md`'s existing rule that technical/system-wide logs are not part of a scoped Admin's reduced view — Vee's access to Malachi-specific activity (per `view_child_activity_logs`, `Authorization.md`) is a separate, narrower capability from this full security log — built as the Activity tab on Users (`Users.md`, 2026-10-25), an allowlisted subset of these same events scoped to one child.
 
 ## Dependencies
 

@@ -18,6 +18,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getBaseLayerPrompt } from "./base-layer";
 import { ASSISTANT_ROLE_PROMPT } from "./roles";
+import { recordAiUsage, tokensFrom, type UsageContext } from "./usage";
 
 const FRONTIER_MODEL = "claude-opus-5";
 
@@ -39,6 +40,46 @@ export function isFrontierConfigured(): boolean {
 }
 
 /**
+ * Runs a non-streaming Anthropic call and records its usage (tokens, latency,
+ * success/failure) when the caller supplied a UsageContext. The result — or
+ * the error — passes through untouched; metering never changes behaviour.
+ */
+async function meteredCreate<T extends { usage?: { input_tokens?: number; output_tokens?: number } }>(
+  usage: UsageContext | undefined,
+  feature: "escalation" | "curriculum_plan",
+  call: () => Promise<T>
+): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    const response = await call();
+    if (usage) {
+      recordAiUsage({
+        userId: usage.userId,
+        feature,
+        model: FRONTIER_MODEL,
+        ...tokensFrom(response.usage),
+        latencyMs: Date.now() - startedAt,
+        status: "ok",
+      });
+    }
+    return response;
+  } catch (err) {
+    if (usage) {
+      recordAiUsage({
+        userId: usage.userId,
+        feature,
+        model: FRONTIER_MODEL,
+        inputTokens: null,
+        outputTokens: null,
+        latencyMs: Date.now() - startedAt,
+        status: "error",
+      });
+    }
+    throw err;
+  }
+}
+
+/**
  * Mechanism 1. Takes a short recent window of the conversation (index.ts's
  * `streamAssistantReply`), never the full thread, and never any AI_Memory
  * context. The window itself is what's classified "needs no family data" —
@@ -49,10 +90,11 @@ export function isFrontierConfigured(): boolean {
  * like "and verse 4?" without sending anything that failed the same
  * no-family-data check a single question was already trusted against).
  */
-export async function* streamFrontierReply(recentTurns: FrontierTurn[]): AsyncGenerator<string> {
+export async function* streamFrontierReply(recentTurns: FrontierTurn[], usage?: UsageContext): AsyncGenerator<string> {
   const anthropic = getClient();
   if (!anthropic) throw new Error("Frontier model not configured (ANTHROPIC_API_KEY unset).");
 
+  const startedAt = Date.now();
   const stream = anthropic.messages.stream({
     model: FRONTIER_MODEL,
     max_tokens: 4096,
@@ -60,19 +102,47 @@ export async function* streamFrontierReply(recentTurns: FrontierTurn[]): AsyncGe
     messages: recentTurns,
   });
 
-  let yieldedAny = false;
-  for await (const event of stream) {
-    if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-      yieldedAny = true;
-      yield event.delta.text;
+  // Metered once the stream settles. A consumer that abandons the generator
+  // early is not recorded — a small undercount, not worth holding the
+  // connection open to settle a call nobody is reading.
+  try {
+    let yieldedAny = false;
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+        yieldedAny = true;
+        yield event.delta.text;
+      }
     }
-  }
 
-  // stop_reason must be checked before trusting content was returned at all
-  // — a declined request is a normal 200, not a thrown error.
-  const finalMessage = await stream.finalMessage();
-  if (finalMessage.stop_reason === "refusal" && !yieldedAny) {
-    yield "I'm not able to help with that particular question — could you try asking it a different way?";
+    // stop_reason must be checked before trusting content was returned at all
+    // — a declined request is a normal 200, not a thrown error.
+    const finalMessage = await stream.finalMessage();
+    if (usage) {
+      recordAiUsage({
+        userId: usage.userId,
+        feature: "assistant_stream",
+        model: FRONTIER_MODEL,
+        ...tokensFrom(finalMessage.usage),
+        latencyMs: Date.now() - startedAt,
+        status: "ok",
+      });
+    }
+    if (finalMessage.stop_reason === "refusal" && !yieldedAny) {
+      yield "I'm not able to help with that particular question — could you try asking it a different way?";
+    }
+  } catch (err) {
+    if (usage) {
+      recordAiUsage({
+        userId: usage.userId,
+        feature: "assistant_stream",
+        model: FRONTIER_MODEL,
+        inputTokens: null,
+        outputTokens: null,
+        latencyMs: Date.now() - startedAt,
+        status: "error",
+      });
+    }
+    throw err;
   }
 }
 
@@ -82,7 +152,12 @@ export async function* streamFrontierReply(recentTurns: FrontierTurn[]): AsyncGe
  * person, and what it already said — so the frontier model verifies/improves
  * rather than cold-re-answering with none of that context.
  */
-export async function escalateToFrontier(question: string, memoryContext: string, localAnswer: string): Promise<string> {
+export async function escalateToFrontier(
+  question: string,
+  memoryContext: string,
+  localAnswer: string,
+  usage?: UsageContext
+): Promise<string> {
   const anthropic = getClient();
   if (!anthropic) throw new Error("Frontier model not configured (ANTHROPIC_API_KEY unset).");
 
@@ -99,12 +174,14 @@ export async function escalateToFrontier(question: string, memoryContext: string
     `The local model's answer: ${localAnswer}`,
   ].join("\n");
 
-  const response = await anthropic.messages.create({
-    model: FRONTIER_MODEL,
-    max_tokens: 4096,
-    system: systemPrompt,
-    messages: [{ role: "user", content: question }],
-  });
+  const response = await meteredCreate(usage, "escalation", () =>
+    anthropic.messages.create({
+      model: FRONTIER_MODEL,
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: [{ role: "user", content: question }],
+    })
+  );
 
   if (response.stop_reason === "refusal") {
     return "The outside model declined to answer this question.";
@@ -162,6 +239,7 @@ export async function generateCurriculumPlan(params: {
   blackouts: BlackoutRange[];
   minPerWeek: number;
   maxPerWeek: number;
+  usage?: UsageContext;
 }): Promise<GeneratedAssignment[]> {
   const anthropic = getClient();
   if (!anthropic) throw new Error("Frontier model not configured (ANTHROPIC_API_KEY unset).");
@@ -187,12 +265,14 @@ export async function generateCurriculumPlan(params: {
     params.materialText,
   ].join("\n");
 
-  const response = await anthropic.messages.create({
-    model: FRONTIER_MODEL,
-    max_tokens: 8192,
-    system: systemPrompt,
-    messages: [{ role: "user", content: "Generate the year plan now." }],
-  });
+  const response = await meteredCreate(params.usage, "curriculum_plan", () =>
+    anthropic.messages.create({
+      model: FRONTIER_MODEL,
+      max_tokens: 8192,
+      system: systemPrompt,
+      messages: [{ role: "user", content: "Generate the year plan now." }],
+    })
+  );
 
   if (response.stop_reason === "refusal") {
     throw new Error("The outside model declined to generate a plan for this material.");

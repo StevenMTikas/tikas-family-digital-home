@@ -27,12 +27,10 @@ export const LOG_EVENT_TYPES = [
   "device_revoked",
   "permission_changed",
   "outside_call_approved",
-  // Currently unreachable: requestOutsideCallApproval() (lib/core/ai/index.ts)
-  // is a pure automatic permission-bit gate (approved or blocked) — there is
-  // no interactive review UI anywhere yet where a human clicks "deny" before
-  // a call goes out. Kept in the union (matches the admin Logs screen's
-  // filter/label, which already expects it) rather than removed, since the
-  // real fix is building that UI, not a logging change. See Future_Ideas.md.
+  // Logged when a user cancels the preview of an outbound call (the
+  // Assistant's thumbs-down escalation) — they saw exactly what would have
+  // been sent and said no. Distinct from "blocked" below, which means they
+  // never got that far for lack of permission.
   "outside_call_denied",
   "outside_call_blocked",
   // AI_Architecture.md: "Log every AI interaction through the shared

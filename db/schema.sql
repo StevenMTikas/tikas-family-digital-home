@@ -107,6 +107,27 @@ CREATE TABLE location_reports (
 CREATE INDEX idx_location_reports_user_time ON location_reports(user_id, recorded_at DESC);
 CREATE INDEX idx_location_reports_received_at ON location_reports(received_at);
 
+-- ── AI Usage ─────────────────────────────────────────────────────────
+-- One row per outbound (frontier-model) call: who, which feature, which model,
+-- tokens, latency. See lib/core/ai/usage.ts. Not in security_events because
+-- that table is purged at 30 days; usage data must outlive that (spend
+-- visibility today, the per-call record pay-per-use billing needs later).
+-- Token counts are NULL when the call failed before the API reported any.
+CREATE TABLE ai_usage (
+    id TEXT PRIMARY KEY,
+    user_id TEXT REFERENCES users(id),
+    feature TEXT NOT NULL,                -- assistant_stream | escalation | curriculum_plan
+    provider TEXT NOT NULL,               -- 'anthropic' for MVP
+    model TEXT NOT NULL,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    latency_ms INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('ok', 'error')),
+    created_at TEXT NOT NULL              -- ISO, UTC
+);
+CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
+CREATE INDEX idx_ai_usage_user_id ON ai_usage(user_id);
+
 -- ── Connector Debug Log (temporary) ──────────────────────────────────
 -- TEMPORARY diagnostics for verifying the push-triggered location refresh on a
 -- real phone (did a push wake it, how fast, was the fix fresh?). Not part of

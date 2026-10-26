@@ -52,3 +52,15 @@ export async function createUser(input: NewUserInput): Promise<void> {
   });
   await unwrap(res);
 }
+
+export interface ActivityEntry {
+  id: string;
+  type: string;
+  label: string;
+  summary: string | null;
+  createdAt: string;
+}
+
+export async function getUserActivity(userId: string): Promise<ActivityEntry[]> {
+  return unwrap(await fetch(`/api/users/${userId}/activity`));
+}
